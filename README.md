@@ -6,7 +6,7 @@ all wired to [ARC-1](https://github.com/marianfoo/arc-1) as an MCP
 server so the AI reviewers can see the **live SAP system**, not just
 the diff text.
 
-> Companion to **[blog post — link TBD]**.
+> Companion to **[ARC-1 ABAP CI/CD review — blog post](https://blog.zeis.de/posts/2026-05-12-arc-1-abap-cicd-review/)**.
 
 ## What you'll see in this repo
 
