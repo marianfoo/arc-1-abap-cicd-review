@@ -1,15 +1,56 @@
 # ARC-1 ABAP CI/CD review
 
-End-to-end demo: SAP ABAP development → abapGit push → GitHub PR →
-automated review (static lint via [abaplint](https://abaplint.org/)
-+ semantic AI review via **GitHub Copilot Coding Agent** wired to
-[ARC-1](https://github.com/marianfoo/arc-1) as an MCP server).
+End-to-end demo: SAP ABAP changes pushed via abapGit to GitHub, then
+reviewed by a combination of static lint, GitHub Copilot, and Claude —
+all wired to [ARC-1](https://github.com/marianfoo/arc-1) as an MCP
+server so the AI reviewers can see the **live SAP system**, not just
+the diff text.
 
-> Companion to the [Joule Studio + ARC-1 clean-core blog post](https://blog.zeis.de/posts/2026-05-08-arc-1-joule-studio-clean-core/) —
-> same toolchain, different surface: this time the LLM lives in the
-> GitHub PR instead of Joule Studio.
+> Companion to **[blog post — link TBD]**.
 
-## Package contents (`ZARC1_DEMO`)
+## What you'll see in this repo
+
+- **[PR #14](https://github.com/marianfoo/arc-1-abap-cicd-review/pull/14)** —
+  one diff reviewed by four different surfaces side-by-side:
+  abaplint (static), Copilot Code Review (AI, no MCP),
+  Copilot Coding Agent (AI + MCP), Claude (AI + MCP).
+- **[Issues labelled `sap:dump`](https://github.com/marianfoo/arc-1-abap-cicd-review/issues?q=is%3Aissue+label%3Asap%3Adump)** —
+  autonomous Claude agent triages ST22 short dumps, opens one issue
+  per new dump with a hypothesis and an urgency label.
+- **Three workflows** in [`.github/workflows/`](.github/workflows/),
+  all sharing the same ARC-1 MCP backend:
+  - `pr.yml` — abaplint via reviewdog
+  - `copilot-review-trigger.yml` — label-triggered Copilot review
+  - `claude-review-trigger.yml` — label-triggered Claude review
+  - `sap-dump-triage.yml` — scheduled / manual dump triage
+
+## Architecture
+
+```
+┌────────────────────┐     abapGit     ┌────────────────────────┐
+│ SAP test system    │ ──────push────▶ │ GitHub: this repo      │
+│ ZARC1_DEMO         │ ◀─────pull───── │ PR + autonomous agent  │
+└────────────────────┘                 └────────┬───────────────┘
+        ▲                                       │
+        │ HTTPS (MCP, viewer-sql)               ▼
+   ┌────┴────┐                          ┌────────────────────────┐
+   │ ARC-1   │ ◀──────(MCP)──────────── │ GitHub Actions         │
+   │ BTP CF  │                          │  abaplint              │
+   └─────────┘                          │  Copilot Coding Agent  │
+                                        │  Claude Code Action    │
+                                        │  Dump-triage agent     │
+                                        └────────────────────────┘
+```
+
+Three review patterns, one MCP backend:
+
+| Pattern | Trigger | Workflow |
+|---|---|---|
+| reactive on push | PR opened / updated | `pr.yml` |
+| reactive on user action | label / mention | `copilot-review-trigger.yml`, `claude-review-trigger.yml` |
+| proactive on schedule | cron | `sap-dump-triage.yml` |
+
+## Sample package (`ZARC1_DEMO`)
 
 | Object | Name | Purpose |
 |---|---|---|
@@ -17,283 +58,178 @@ automated review (static lint via [abaplint](https://abaplint.org/)
 | DOMA | `ZARC1_D_STATUS` | char1, fixed values A/D/X |
 | DTEL | `ZARC1_E_STATUS` | data element on the domain |
 | MSAG | `ZARC1_TASK` | user-facing messages |
-| TABL | `ZARC1_T_TASK` | task storage (client + task_id key) |
+| TABL | `ZARC1_T_TASK` | task storage |
 | INTF | `ZIF_ARC1_TASK_SERVICE` | service contract |
 | CLAS | `ZCL_ARC1_TASK_SERVICE` | implementation + local test class |
 | PROG | `ZARC1_TASK_LIST` | SELECT-OPTIONS report → SALV |
 
-A deliberate code-style issue is seeded in `zarc1_task_list.prog.abap`
-(chained `DATA: BEGIN OF`) so the PR-workflow has something to flag.
-**The "first PR" against this repo is the fix.**
+## Setup
 
-## How it works
+### 1. SAP-side
 
-```
-┌────────────────────┐     abapGit     ┌────────────────────────┐
-│ SAP test system    │ ──────push────▶ │ GitHub: this repo      │
-│ ZARC1_DEMO         │ ◀─────pull───── │ feature branch         │
-└────────────────────┘                 └────────┬───────────────┘
-        ▲                                       │ open PR
-        │ HTTPS (MCP)                           ▼
-        │                              ┌────────────────────────┐
-   ┌────┴────┐                         │ GitHub Actions         │
-   │ ARC-1   │ ◀──────(MCP)──────────  │  · abaplint            │
-   │ BTP CF  │   read-only viewer-sql  │                        │
-   └─────────┘                         │ Copilot Coding Agent   │
-                                       │  · reads diff          │
-                                       │  · calls ARC-1 MCP     │
-                                       │  · posts PR review     │
-                                       └────────────────────────┘
-```
-
-Two review layers, each doing what it's best at:
-
-1. **`abaplint` workflow** — the canonical [abaplint GitHub Action](https://github.com/abaplint/actions-abaplint)
-   runs on every PR, annotates findings inline on the diff via the
-   Checks API. Config: [`abaplint.jsonc`](abaplint.jsonc), tuned for
-   SAP_BASIS 758 / S/4HANA 2023.
-2. **GitHub Copilot Coding Agent** with ARC-1 attached as an MCP
-   server. When assigned to a PR (manually or via auto-assignment
-   in repo Settings), Copilot reads the diff and uses ARC-1 to pull
-   the surrounding SAP context that the static lint can't see —
-   callers, sibling code, ATC findings, customizing tables, etc.
-
-We deliberately do **not** run a second "ARC-1 SAPLint" job in CI —
-it would re-run the same engine on the same files. ARC-1's value-
-add is the live-SAP context fed to the LLM reviewer, not duplicate
-linting.
-
-## Reproducing this setup
-
-### Prerequisites
-
-- A SAP system with abapGit installed (report `ZABAPGIT` or
-  `ZABAPGIT_STANDALONE`).
-- GitHub's current TLS chain trusted in `STRUST` → SSL Client
-  (Standard). GitHub rotates leaf certs every ~90 days; only the
-  **intermediate + root** in the chain need to be in the PSE —
-  the leaf rotates automatically. Verify the live chain first:
+- Install abapGit (`ZABAPGIT` or `ZABAPGIT_STANDALONE`).
+- Trust GitHub's current TLS chain in `STRUST` → SSL Client (Standard).
+  Verify the live chain first:
   ```bash
   openssl s_client -servername github.com -connect github.com:443 -showcerts
   ```
-- An ARC-1 instance reachable from GitHub (the BTP CF deployment
-  with XSUAA + Destination Service is the easiest).
-- A GitHub Personal Access Token registered in abapGit for HTTPS
-  push (fine-grained, scope `Contents: read/write` on this repo).
-- A GitHub Copilot subscription that includes **Coding Agent**
-  (Copilot Pro / Business / Enterprise).
+  Only the **intermediate + root** need to be in the PSE — the leaf
+  rotates every ~90 days automatically.
+- Generate a GitHub Personal Access Token (fine-grained, `Contents: read/write`
+  on this repo) and register it in the abapGit UI for HTTPS push.
+- Create the package + objects above (Eclipse/SE80, or scripted with
+  the ARC-1 CLI — see [docs](https://github.com/marianfoo/arc-1)).
 
-### One-time setup in SAP
+### 2. ARC-1 instance
 
-1. Create package `ZARC1_DEMO` (transportable, `HOME` SWCV).
-2. Create a workbench transport request.
-3. Create the objects listed above. Either by hand in Eclipse/SE80,
-   or scripted via the ARC-1 CLI:
+Deploy ARC-1 on SAP BTP Cloud Foundry (the [ARC-1 README](https://github.com/marianfoo/arc-1)
+walks through this). Mint an API key with the **`viewer-sql`**
+profile:
 
-   ```bash
-   node dist/cli.js call SAPTransport --json '{"action":"create",…,"targetPackage":"ZARC1_DEMO"}'
-   node dist/cli.js call SAPManage    --json '{"action":"create_package","name":"ZARC1_DEMO","softwareComponent":"HOME","transport":"…"}'
-   node dist/cli.js call SAPWrite     --json '{"action":"create","type":"DOMA",…}'
-   # … one SAPWrite per object, then SAPActivate.
-   ```
-
-### One-time setup in GitHub
-
-**1. Repo → Settings → Copilot → Cloud agent → MCP configuration**
-
-Paste this JSON:
-
-```json
-{
-  "mcpServers": {
-    "arc-1": {
-      "type": "http",
-      "url": "https://<your-arc-1-host>/mcp",
-      "headers": {
-        "Authorization": "Bearer $COPILOT_MCP_ARC1_API_KEY"
-      },
-      "tools": [
-        "SAPRead",
-        "SAPSearch",
-        "SAPNavigate",
-        "SAPContext",
-        "SAPDiagnose",
-        "SAPLint",
-        "SAPQuery"
-      ]
-    }
-  }
-}
+```bash
+cf set-env <arc-1-app> ARC1_API_KEYS "<key>:viewer-sql"
+cf restage <arc-1-app>
 ```
 
-The `tools` array is an **explicit allowlist** — Copilot calls MCP
-tools autonomously without per-call approval, so writing tools
-(`SAPWrite`, `SAPActivate`, `SAPManage`, `SAPTransport`, `SAPGit`)
-are deliberately omitted.
+Note the public URL (`https://<arc-1-app>.cfapps.<region>.hana.ondemand.com`).
 
-**2. Repo → Settings → Copilot → Cloud agent → Secrets**
+### 3. GitHub-side secrets/vars
 
-Add `COPILOT_MCP_ARC1_API_KEY` — an ARC-1 API key with the
-**`viewer-sql`** profile (read + free SQL + table preview, no
-writes). The `COPILOT_MCP_` prefix is required by GitHub.
+Repo → Settings → Secrets and variables → Actions:
 
-**3. Branch protection on `main`**
+| Type | Name | Value |
+|---|---|---|
+| Variable | `ARC1_URL` | the ARC-1 public URL from step 2 |
+| Secret | `ARC1_API_KEY` | the viewer-sql API key |
+| Secret | `ANTHROPIC_API_KEY` | from [console.anthropic.com](https://console.anthropic.com) |
+| Secret | `COPILOT_TRIGGER_PAT` | fine-grained PAT, this repo only, `Pull requests: read/write` + `Contents: read` |
 
-Require the `abaplint` check to pass. Optionally require a Copilot
-review (or assign Copilot as default reviewer for PRs).
+### 4. Copilot Coding Agent (optional but recommended)
 
-**4. Reviewer instructions**
+Repo → Settings → Code & automation → Copilot → Cloud agent:
 
-The agent reads [`.github/copilot-instructions.md`](.github/copilot-instructions.md)
-on every invocation. It tells Copilot which ARC-1 tools to reach for
-when answering each kind of review question, and what to skip
-because the abaplint check already covered it.
+- **MCP configuration**:
+  ```json
+  {
+    "mcpServers": {
+      "arc-1": {
+        "type": "http",
+        "url": "https://<your-arc-1-host>/mcp",
+        "headers": { "Authorization": "Bearer $COPILOT_MCP_ARC1_API_KEY" },
+        "tools": ["SAPRead","SAPSearch","SAPNavigate","SAPContext","SAPDiagnose","SAPLint","SAPQuery"]
+      }
+    }
+  }
+  ```
+  The `tools` array is an **explicit allowlist** — Copilot calls MCP
+  tools without per-call approval, so write tools are omitted.
+- **Custom allowlist** (Internet access): add the ARC-1 host so
+  Copilot's firewall lets it through.
+- **Agent secrets**: `COPILOT_MCP_ARC1_API_KEY` (same value as
+  `ARC1_API_KEY` above — the `COPILOT_MCP_` prefix is required by
+  GitHub).
 
-### Triggering an ARC-1-backed Copilot review on a PR
+### 5. Claude (optional, parallel to Copilot)
 
-Important: the right-sidebar **"Reviewers → Copilot"** assignment
-triggers the *Copilot Code Review* product, which does **not** call
-MCP servers — it reviews from the diff text only. For MCP-backed
-review (Copilot Coding Agent), you need to **`@copilot`-mention**
-in a PR comment. Three ways, increasingly automated:
+Two ways:
 
-**Option 1 — Apply the `copilot:review` label** (recommended)
+- **CI workflow** — uses [`anthropics/claude-code-action@v1`](https://github.com/anthropics/claude-code-action),
+  already wired up in `claude-review-trigger.yml`. Reads `ANTHROPIC_API_KEY`
+  + the ARC-1 secrets from step 3. No GitHub App install needed.
+- **`@claude` mention** — install the [Claude GitHub App](https://github.com/apps/claude),
+  configure ARC-1 in the app's per-repo settings. Lets you ask
+  questions in PR comments without firing a workflow.
 
-Open the PR → right sidebar → Labels → `copilot:review`. The
-[`copilot-review-trigger.yml`](.github/workflows/copilot-review-trigger.yml)
-workflow posts the canonical prompt from
-[`.github/copilot-review-prompt.md`](.github/copilot-review-prompt.md)
-as a PR comment containing `@copilot review …`, which invokes Copilot
-Coding Agent. The label auto-removes after posting so you can re-apply
-it later to re-trigger.
+## Use
 
-> **One-time setup:** this workflow needs a fine-grained PAT, not the
-> default `GITHUB_TOKEN`. Comments posted by `github-actions[bot]` do
-> NOT trigger `@copilot` mentions — that's GitHub's recursion-prevention
-> rule. (GitHub App installation tokens are also unsupported for this,
-> per [github/gh-aw#19765](https://github.com/github/gh-aw/issues/19765).)
-> The canonical workaround:
->
-> 1. github.com → your profile → Settings → Developer settings →
->    Personal access tokens → Fine-grained tokens → **Generate new token**.
-> 2. Repository access: this repo only.
-> 3. Permissions: **Pull requests = Read and write**, **Contents = Read**.
-> 4. Expiry: your call (90 days or 1 year is typical).
-> 5. Copy the token.
-> 6. This repo → Settings → Secrets and variables → Actions →
->    **New repository secret** → name `COPILOT_TRIGGER_PAT`, paste the
->    token. The workflow fails fast with a clear error if the secret
->    isn't set.
->
-> The token owner needs an active Copilot subscription — that's what
-> makes `@copilot` work in the comment Copilot will see.
+### Static lint on every PR — automatic
 
-**Option 2 — GitHub Saved Reply** (one-click, account-level)
+Every PR fires [`pr.yml`](.github/workflows/pr.yml). abaplint runs via
+[reviewdog](https://github.com/reviewdog/reviewdog) and posts findings
+as:
 
-In github.com → your profile → Settings → Saved replies → "Add a saved
-reply" → paste the contents of
-[`.github/copilot-review-prompt.md`](.github/copilot-review-prompt.md).
-Then on any PR, click the dropdown to the right of the Comment button,
-pick the saved reply, hit Comment.
+- inline review comments on changed lines (Files Changed tab),
+- a sticky summary comment for findings on unchanged files
+  (Conversation tab),
+- a Check Run with annotations (Checks tab).
 
-**Option 3 — Paste the prompt manually**
+The job fails on any abaplint error so the PR is gated.
 
-Open [`.github/copilot-review-prompt.md`](.github/copilot-review-prompt.md),
-copy, paste into a new PR comment. Useful when you want to tweak the
-prompt for a specific PR.
+### AI review on demand — labels
 
-All three end up the same way: Copilot Coding Agent picks up the
-`@copilot` mention, uses ARC-1 via the MCP config, posts one summary
-review citing the tool calls.
+| Label | Surface | Notes |
+|---|---|---|
+| (sidebar → Reviewers → Copilot) | Copilot Code Review | Reviews from diff only; no MCP. |
+| `copilot:review` | Copilot Coding Agent + ARC-1 MCP | Workflow posts a `@copilot` comment that fires the agent. |
+| `claude:review` | Claude Code Action + ARC-1 MCP | Workflow runs Claude in CI; posts review with inline comments + Apply-suggestion buttons. |
 
-## Alternative: Claude instead of Copilot
+The label triggers a workflow that auto-removes the label after firing,
+so re-applying re-triggers.
 
-Same task, different engine. The repo has a parallel workflow
-[`claude-review-trigger.yml`](.github/workflows/claude-review-trigger.yml)
-using [`anthropics/claude-code-action@v1`](https://github.com/anthropics/claude-code-action).
-**Apply the `claude:review` label** to a PR and the workflow runs Claude
-Code in CI, queries ARC-1 via MCP, and posts a review as `claude[bot]`.
+Both AI reviewers can post **inline suggestions with an "Apply" button**
+just like a human reviewer's suggestions — see PR #14 for examples.
 
-Why Claude is *simpler to wire up* than Copilot here: Claude runs
-INSIDE our workflow, so it posts comments via the default `GITHUB_TOKEN`
-— no PAT trick needed (there's no `@`-mention to chain another bot
-through). The trade-off: needs an Anthropic API key + you pay per token.
+### Autonomous dump triage — scheduled (or manual)
 
-**One-time setup for the Claude path:**
-
-1. `ANTHROPIC_API_KEY` (repository secret) — get from
-   [console.anthropic.com](https://console.anthropic.com).
-2. `ARC1_API_KEY` (repository secret) — same `viewer-sql` profile API
-   key as the Copilot setup, just stored under a regular name (the
-   `COPILOT_MCP_` prefix is required for Copilot only).
-3. `ARC1_URL` (repository variable) — same as Copilot, already set.
-
-That's it. No GitHub App install, no PAT, no extra UI config — the MCP
-server is configured inline in the workflow.
-
-**Optional: `@claude` mention via the Claude GitHub App.** If you'd
-also like the conversational `@claude` mention surface (parallel to
-`@copilot`), install the [Claude GitHub App](https://github.com/apps/claude)
-on the repo and configure its MCP servers in the app's settings.
-Trigger reviews with `@claude review …` in PR comments. The mention
-surface is mostly redundant once the label-triggered workflow above
-is wired up — keep this for ad-hoc questions ("@claude, what does the
-caller chain look like for `create_task`?").
-
-Reviewer instructions for Claude live in
-[`.github/CLAUDE.md`](.github/CLAUDE.md) — same review criteria as
-Copilot, different invocation surface.
-
-## Autonomous: scheduled SAP dump triage
-
-Same ARC-1 MCP backend, but **scheduled instead of event-triggered**.
 [`sap-dump-triage.yml`](.github/workflows/sap-dump-triage.yml) runs
-every 6 hours (and on manual dispatch). Claude lists ST22 short
-dumps via `SAPDiagnose(action="dumps")`, dedupes against existing
-issues labelled `sap:dump` (HTML-comment marker `<!-- dump-id: ... -->`
-in each issue body), reads the focused chapter sections for any new
-dumps, and opens one GitHub issue per dump with:
+Claude on a schedule (currently `workflow_dispatch` only — enable the
+cron block in the file for autonomous mode). Each run:
 
-- error class + program in the title (`[ST22] OBJECTS_OBJREF_NOT_ASSIGNED in CL_ART_QUICKFIX_PROVIDER`)
-- the dump-id marker for future dedup
-- a 2–4 sentence Claude triage (likely cause, transient vs systemic,
-  one suggested next step)
-- labels `sap:dump`, `needs-triage`
+1. Lists ST22 short dumps via `SAPDiagnose(action="dumps")`.
+2. Dedupes against existing `sap:dump` issues (HTML-comment marker
+   `<!-- dump-id: ... -->`).
+3. Opens **one issue per new dump** with a 2–4 sentence triage,
+   citing the ARC-1 tool results, and an urgency label per the
+   rubric in [`.github/sap-dump-triage-prompt.md`](.github/sap-dump-triage-prompt.md):
+   - `urgency:high` — background / cron / security / recurrence
+   - `urgency:medium` — user-facing transient (default)
+   - `urgency:low` — dev-tool/ADT/debugger noise
 
-Caps: max 5 new dumps per run, max 30 agent turns. Cost is bounded to
-~$0.30 / run worst case.
+Caps: max 5 new dumps per run, `--max-turns 30`. Bounded cost (~$0.30
+worst case per run).
 
-Prompt lives in [`.github/sap-dump-triage-prompt.md`](.github/sap-dump-triage-prompt.md).
-Fire manually from the Actions tab → "SAP dump triage" → "Run workflow".
+## Adapt it for your environment
 
-This is the **third axis** of the showcase:
+| Change | Where |
+|---|---|
+| BTP CF host | `ARC1_URL` repo variable |
+| Model | `--model` in workflow `claude_args` |
+| Severity rubric | `.github/sap-dump-triage-prompt.md` |
+| PR review focus | `.github/claude-review-prompt.md` / `.github/copilot-review-prompt.md` |
+| Dump-triage cadence | `cron:` in `sap-dump-triage.yml` (commented out by default) |
+| Allowed MCP tools | `--allowedTools` in workflow `claude_args` / Copilot MCP config |
+| `abaplint` rules | `abaplint.jsonc` |
 
-- reactive on push      → `pr.yml` (abaplint via reviewdog)
-- reactive on label     → `copilot-review-trigger.yml` / `claude-review-trigger.yml`
-- proactive on schedule → `sap-dump-triage.yml`
+## Measured costs (small team baseline)
 
-Same MCP server underneath all three.
+| Operation | Per call | Volume (5 PRs/day, 10 dumps/day) | Monthly |
+|---|---|---|---|
+| abaplint via reviewdog | free (Actions minutes) | every PR | $0 |
+| Copilot Code Review | included in Copilot subscription | every PR | — |
+| Copilot Coding Agent + MCP | included in Copilot subscription, fair-use | label-triggered | — |
+| Claude PR review | ~$0.20 | 5 × 22 working days | ~$22 |
+| Dump triage (shallow) | ~$0.04 | 10 × 30 days | ~$12 |
+| Dump deep-dive | ~$1.00 | ~20 % of dumps | ~$60 |
+| ARC-1 BTP CF hosting | flat | always-on | ~$30–50 |
+| **Total marginal AI cost** | | | **~$125 / month** |
 
-## After abapGit push: adding the test class
-
-The `seed/zcl_arc1_task_service.clas.testclasses.abap` file in this
-repo is the **local test class** for `ZCL_ARC1_TASK_SERVICE`. ABAP
-Unit tests inside it cover the class's private `validate_title`
-method. abapGit pull will materialise the `CCAU` include in SAP the
-first time it sees this file in `src/`.
+Compare to one SAP-consultant hour at €80–150 spent triaging dumps or
+chasing cross-object regressions: pays for itself in 1–2 hours saved
+per week.
 
 ## Why each layer earns its keep
 
-- **abaplint** is fast (~30 s), runs entirely on the GH runner,
-  catches the long tail of style and statement-level bugs. Run it
-  locally too: `npx @abaplint/cli` for instant feedback before
-  pushing.
-- **Copilot Coding Agent + ARC-1 MCP** is the only layer that
-  answers "does this change break callers?", "is this consistent
-  with the rest of the package?", "is the data this BAdI registers
-  for already covered by a SAP-standard service?" — questions that
-  need the surrounding repository **and** the live SAP system as
-  context. ARC-1's token-efficient design (compressed dependency
-  context, method-level surgery, `SAPContext` for class graphs)
-  keeps the MCP responses small enough for the LLM to actually use
-  them.
+- **abaplint** catches the long tail of style + statement-level bugs.
+  Run locally too: `npx @abaplint/cli`.
+- **Copilot Code Review** (no MCP) is the cheapest AI layer —
+  catches well-known anti-patterns from training, but can't
+  verify against the live system (and occasionally hallucinates).
+- **Coding Agent / Claude + ARC-1 MCP** is the only layer that
+  answers questions like *"does this change break callers?"*,
+  *"is the active version in SAP already drifting from the PR?"*,
+  *"is this BAdI registration already covered by a SAP-standard
+  service?"* — questions that need both the surrounding repo and
+  the live SAP system as context.
+- **Autonomous dump triage** turns silent SAP failures into tracked
+  GitHub issues with a 2–4 sentence hypothesis, before users open
+  tickets.

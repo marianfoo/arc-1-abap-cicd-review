@@ -9,10 +9,12 @@ name: SAP dump triage
 # showcase — reactive (PR review) vs proactive (cron triage).
 
 on:
-  schedule:
-    # 00:00, 06:00, 12:00, 18:00 UTC. Adjust to your business hours if
-    # you want denser coverage during EU working hours, e.g. */2 8-18.
-    - cron: '0 */6 * * *'
+  # Cron disabled during the showcase period so the issue list stays
+  # predictable for the blog post. Re-enable when running this in
+  # production by uncommenting the schedule block below.
+  #
+  # schedule:
+  #   - cron: '0 */6 * * *'   # 00:00, 06:00, 12:00, 18:00 UTC
   workflow_dispatch: {}   # manual fire from the Actions tab
 
 # concurrency: don't pile up runs if one drags out.
