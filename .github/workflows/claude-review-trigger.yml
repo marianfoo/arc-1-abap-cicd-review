@@ -73,16 +73,18 @@ jobs:
             }
           # claude_args breakdown:
           #   --model claude-sonnet-4-6   fast & cheap enough for review.
-          #   --max-turns 8              cap agent loop. Previous unbounded
-          #                              run hit ~10 turns and 478k tokens;
-          #                              8 is enough for: read diff →
-          #                              1-3 MCP calls → write review →
-          #                              post via gh.
-          #   --allowedTools             tight allowlist. Only the read-side
-          #                              ARC-1 tools the prompt asks for,
-          #                              plus a narrow `gh pr comment` for
-          #                              the final post step.
+          #   --max-turns 15             cap on agent loop. Empirical:
+          #                              previous unbounded run at 10 turns
+          #                              cost $0.44; bounded run at 8 turns
+          #                              cost $0.11 but hit the cap before
+          #                              posting. 15 is the sweet spot —
+          #                              enough headroom to finish, low
+          #                              enough to bound bad behaviour.
+          #   --allowedTools             tight allowlist: read-side ARC-1
+          #                              tools the prompt asks for, plus
+          #                              narrow `gh pr comment` /
+          #                              `gh pr diff` for the post step.
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 8
+            --max-turns 15
             --allowedTools mcp__arc-1__SAPRead,mcp__arc-1__SAPDiagnose,mcp__arc-1__SAPNavigate,mcp__arc-1__SAPLint,Bash(gh pr comment:*),Bash(gh pr diff:*)
