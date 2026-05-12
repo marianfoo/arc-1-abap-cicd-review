@@ -43,23 +43,59 @@ Step 2 — build the review payload. Severity prefixes go in the comment
 body itself (`**Blocking**:`, `**Should fix**:`, `**Consider**:`).
 Cite the ARC-1 tool result that informed each finding (e.g. "_SAPRead
 showed line drift between repo and active_", "_SAPDiagnose returned
-hasErrors=false_"):
+hasErrors=false_").
+
+**When you have a concrete fix, include a `suggestion` code block** so
+GitHub renders an "Apply suggestion" button. The block must contain
+**exactly** what the new content should be for the line range. Single-
+line suggestions only need `line:`; multi-line suggestions need both
+`start_line:` and `line:` (and `side` / `start_side` default to
+`RIGHT`, which is correct for normal additions). Example payload —
+mixing one plain comment (no fix), one single-line suggestion, and one
+multi-line suggestion:
 
 ```bash
 cat > /tmp/review.json <<'EOF'
 {
   "event": "COMMENT",
-  "body": "## Claude review\n\nReviewed using the arc-1 MCP server.\n\n_Overall notes / cross-file findings here. If everything's covered inline, write a short summary instead._\n\n**Tool calls made:** SAPRead, SAPDiagnose, ...",
+  "body": "## Claude review\n\nReviewed using the arc-1 MCP server.\n\n_Overall notes / cross-file findings here._\n\n**Tool calls made:** SAPRead, SAPDiagnose, ...",
   "comments": [
     {
-      "path": "src/zarc1_task_list.prog.abap",
+      "path": "src/foo.prog.abap",
+      "line": 14,
+      "body": "**Consider**: unused. _SAPNavigate found 0 references._"
+    },
+    {
+      "path": "src/foo.prog.abap",
       "line": 27,
-      "body": "**Should fix**: <one-line finding>. _Cite which ARC-1 tool result backs this._"
+      "body": "**Blocking**: leftover debug breakpoint.\n\n```suggestion\n  \" (line removed)\n```"
+    },
+    {
+      "path": "src/bar.clas.abap",
+      "start_line": 55,
+      "line": 63,
+      "body": "**Blocking**: direct MARA SELECT is a clean-core violation. Use the released CDS view instead.\n\n```suggestion\n    select single product from i_product\n      into @data(lv_dummy)\n      where productisexternalitem = 'X'.\n    if sy-subrc <> 0.\n      return.\n    endif.\n```"
     }
   ]
 }
 EOF
 ```
+
+Suggestion-block rules:
+
+- The `suggestion` block content is the **exact replacement** for the
+  spanned line range. Whitespace matters — preserve indentation as it
+  should appear in the file.
+- To suggest **deleting** lines, use an empty `suggestion` block (just
+  the opening + closing fences). The "Apply suggestion" button will
+  remove the spanned lines.
+- Don't write a `suggestion` block when you're unsure of the right
+  fix — leave it as a plain comment. A wrong suggestion is worse than
+  no suggestion (the reviewer applies, breaks something, and now
+  trusts you less).
+- Only suggest changes on **lines in this PR's diff**. GitHub rejects
+  suggestions on unchanged lines anyway, but check `gh pr diff` first
+  if uncertain.
 
 Step 3 — post it:
 
