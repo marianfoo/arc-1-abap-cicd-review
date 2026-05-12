@@ -10,20 +10,53 @@ permissions:
   pull-requests: write
 
 jobs:
-  # ── Static lint (the canonical abaplint action) ──
-  # Annotates findings inline on the PR diff via the Checks API.
-  # Config: ../../abaplint.jsonc at repo root.
+  # ── Static lint (abaplint + reviewdog) ──
+  # Why not `abaplint/actions-abaplint@main`? Its bundled
+  # @octokit/rest@16.10.0 silently fails to post Check annotations
+  # (the `Hook()` repurposing warning). reviewdog posts findings
+  # as PR review comments instead — visible on Files Changed (for
+  # changed lines) AND as overall review comments (for findings
+  # on unchanged files), so you actually see them on the PR.
   abaplint:
     name: abaplint
     runs-on: ubuntu-latest
-    # GITHUB_TOKEN is read-only on forked-PR runs — the action no-ops
-    # the Checks annotation, but the exit code still gates the PR.
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v6
-      # abaplint/actions-abaplint@main is intentionally unpinned for
-      # this demo repo — gets latest rule definitions automatically.
-      # For production: pin to a commit SHA + rely on Dependabot.
-      - uses: abaplint/actions-abaplint@main
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install abaplint + reviewdog
+        run: |
+          npm install --no-save @abaplint/cli@latest
+          curl -sfL https://raw.githubusercontent.com/reviewdog/reviewdog/master/install.sh \
+            | sh -s -- -b "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Run abaplint (checkstyle output)
+        id: lint
+        # abaplint exits non-zero when issues are found; we want to
+        # capture the report and let reviewdog post it, so we don't
+        # fail the step here. The job is gated by reviewdog's exit code.
+        continue-on-error: true
+        run: |
+          npx abaplint --format checkstyle > abaplint.checkstyle.xml || true
+          echo "── plain-text findings (for log scrollers) ──"
+          npx abaplint || true
+
+      - name: Post findings via reviewdog
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # -filter-mode=nofilter posts ALL findings — even those on
+        # files outside this PR's diff (they appear as overall review
+        # comments instead of inline ones). -fail-on-error makes the
+        # job fail if any issue exists, so the PR is gated.
+        run: |
+          cat abaplint.checkstyle.xml | reviewdog \
+            -f=checkstyle \
+            -name=abaplint \
+            -reporter=github-pr-review \
+            -filter-mode=nofilter \
+            -fail-on-error=true
