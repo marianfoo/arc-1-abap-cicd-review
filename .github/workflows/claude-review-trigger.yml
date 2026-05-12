@@ -50,9 +50,12 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: ${{ steps.prompt.outputs.value }}
-          # track_progress shows live "Claude is investigating ..." status
-          # comments while the agent works. Set false for quieter PRs.
-          track_progress: 'true'
+          # use_sticky_comment: deliver the review as a single sticky
+          # comment that updates in place on re-runs (instead of stacking
+          # duplicates). track_progress isn't compatible with the
+          # `labeled` event type per the action's own validation, so we
+          # use sticky-comment delivery instead.
+          use_sticky_comment: 'true'
           # MCP servers live in Claude Code's settings JSON. Keys mirror
           # the Copilot Cloud agent setup (Settings → Copilot → MCP)
           # but reference our regular ARC1_API_KEY secret (no
