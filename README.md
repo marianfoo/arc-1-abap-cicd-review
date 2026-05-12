@@ -149,14 +149,41 @@ on every invocation. It tells Copilot which ARC-1 tools to reach for
 when answering each kind of review question, and what to skip
 because the abaplint check already covered it.
 
-### Triggering the review on a PR
+### Triggering an ARC-1-backed Copilot review on a PR
 
-- Assign **GitHub Copilot** as a reviewer on the PR (right sidebar),
-  or
-- Comment `@github-copilot review` in the PR conversation.
+Important: the right-sidebar **"Reviewers → Copilot"** assignment
+triggers the *Copilot Code Review* product, which does **not** call
+MCP servers — it reviews from the diff text only. For MCP-backed
+review (Copilot Coding Agent), you need to **`@copilot`-mention**
+in a PR comment. Three ways, increasingly automated:
 
-Copilot reads the diff + instructions + ARC-1 MCP context, posts
-one summary review grouped by severity.
+**Option 1 — Apply the `copilot:review` label** (recommended)
+
+Open the PR → right sidebar → Labels → `copilot:review`. The
+[`copilot-review-trigger.yml`](.github/workflows/copilot-review-trigger.yml)
+workflow posts the canonical prompt from
+[`.github/copilot-review-prompt.md`](.github/copilot-review-prompt.md)
+as a PR comment containing `@copilot review …`, which invokes Copilot
+Coding Agent. The label auto-removes after posting so you can re-apply
+it later to re-trigger.
+
+**Option 2 — GitHub Saved Reply** (one-click, account-level)
+
+In github.com → your profile → Settings → Saved replies → "Add a saved
+reply" → paste the contents of
+[`.github/copilot-review-prompt.md`](.github/copilot-review-prompt.md).
+Then on any PR, click the dropdown to the right of the Comment button,
+pick the saved reply, hit Comment.
+
+**Option 3 — Paste the prompt manually**
+
+Open [`.github/copilot-review-prompt.md`](.github/copilot-review-prompt.md),
+copy, paste into a new PR comment. Useful when you want to tweak the
+prompt for a specific PR.
+
+All three end up the same way: Copilot Coding Agent picks up the
+`@copilot` mention, uses ARC-1 via the MCP config, posts one summary
+review citing the tool calls.
 
 ## Alternative: Claude instead of Copilot
 

@@ -1,0 +1,41 @@
+name: Trigger Copilot review
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  request-review:
+    # Only fire when the specific label is applied — other label
+    # changes (bug, etc.) don't trigger this.
+    if: github.event.label.name == 'copilot:review'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Post canonical Copilot review prompt as PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        # Posts the prompt from .github/copilot-review-prompt.md.
+        # The @copilot mention in that file triggers Copilot Coding
+        # Agent, which uses the ARC-1 MCP server configured under
+        # Settings → Copilot → Cloud agent → MCP configuration.
+        run: |
+          gh pr comment "$PR" --repo "${{ github.repository }}" \
+            --body-file .github/copilot-review-prompt.md
+
+      - name: Auto-remove the label
+        # Remove the trigger label so the next apply re-fires the
+        # workflow (otherwise re-applying the same label without
+        # removing first does nothing).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api -X DELETE \
+            "repos/${{ github.repository }}/issues/$PR/labels/copilot:review"
