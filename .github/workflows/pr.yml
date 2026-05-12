@@ -49,14 +49,18 @@ jobs:
       - name: Post findings via reviewdog
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # -filter-mode=nofilter posts ALL findings — even those on
-        # files outside this PR's diff (they appear as overall review
-        # comments instead of inline ones). -fail-on-error makes the
-        # job fail if any issue exists, so the PR is gated.
+        # -reporter=github-pr-check creates a Check Run with annotations.
+        # Visible in: (a) the PR's Checks tab → "abaplint" check (always),
+        # (b) inline on Files Changed for findings on changed lines.
+        # We previously used -reporter=github-pr-review, which silently
+        # dropped findings on unchanged files (e.g. clas.abap when only
+        # prog.abap is in the diff) — the Check Run reporter doesn't.
+        # -filter-mode=nofilter keeps all findings, not just diff-touching ones.
+        # -fail-level=error gates the PR on any error-severity finding.
         run: |
           cat abaplint.checkstyle.xml | reviewdog \
             -f=checkstyle \
             -name=abaplint \
-            -reporter=github-pr-review \
+            -reporter=github-pr-check \
             -filter-mode=nofilter \
-            -fail-on-error=true
+            -fail-level=error
