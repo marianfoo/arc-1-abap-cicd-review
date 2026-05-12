@@ -1,5 +1,32 @@
 name: Trigger Copilot review
 
+# When you apply the `copilot:review` label to a PR, this workflow
+# posts the canonical Copilot review prompt as a PR comment. The
+# `@copilot` mention in that prompt triggers Copilot Coding Agent,
+# which uses the ARC-1 MCP server configured under
+# Settings → Copilot → Cloud agent → MCP configuration.
+#
+# WHY A PAT IS REQUIRED, NOT GITHUB_TOKEN
+# ───────────────────────────────────────
+# Comments posted by `github-actions[bot]` (i.e. via GITHUB_TOKEN) do
+# NOT trigger @copilot mentions or any other bot integration. This is
+# GitHub's recursion-prevention policy — bots can't summon other bots.
+# GitHub App installation tokens DON'T work for this either (officially
+# unsupported for Copilot assignment, see github/gh-aw#19765).
+#
+# The canonical workaround is a fine-grained PAT owned by a real user
+# with an active Copilot subscription. Comments posted by the PAT are
+# attributed to that user, so `@copilot` is treated as a human mention.
+#
+# Setup (one-time):
+#   1. github.com → Settings → Developer settings → Personal access
+#      tokens → Fine-grained tokens → Generate new token.
+#   2. Repository access: only this repo.
+#   3. Permissions: Pull requests = Read and write, Contents = Read.
+#   4. Generate → copy token.
+#   5. This repo → Settings → Secrets and variables → Actions →
+#      New repository secret → name `COPILOT_TRIGGER_PAT`, paste token.
+
 on:
   pull_request:
     types: [labeled]
@@ -10,29 +37,36 @@ permissions:
 
 jobs:
   request-review:
-    # Only fire when the specific label is applied — other label
-    # changes (bug, etc.) don't trigger this.
     if: github.event.label.name == 'copilot:review'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
+      - name: Fail fast if PAT is missing
+        env:
+          PAT: ${{ secrets.COPILOT_TRIGGER_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            {
+              echo '::error::COPILOT_TRIGGER_PAT secret is not set.'
+              echo '::error::GITHUB_TOKEN cannot trigger @copilot mentions —'
+              echo '::error::a fine-grained PAT (user-owned, Copilot-licensed)'
+              echo '::error::is required. See the workflow file header for setup.'
+            } >&2
+            exit 1
+          fi
+
       - name: Post canonical Copilot review prompt as PR comment
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT is required — see header comment.
+          GH_TOKEN: ${{ secrets.COPILOT_TRIGGER_PAT }}
           PR: ${{ github.event.pull_request.number }}
-        # Posts the prompt from .github/copilot-review-prompt.md.
-        # The @copilot mention in that file triggers Copilot Coding
-        # Agent, which uses the ARC-1 MCP server configured under
-        # Settings → Copilot → Cloud agent → MCP configuration.
         run: |
           gh pr comment "$PR" --repo "${{ github.repository }}" \
             --body-file .github/copilot-review-prompt.md
 
       - name: Auto-remove the label
-        # Remove the trigger label so the next apply re-fires the
-        # workflow (otherwise re-applying the same label without
-        # removing first does nothing).
+        # Label removal can use GITHUB_TOKEN — no Copilot involvement.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}

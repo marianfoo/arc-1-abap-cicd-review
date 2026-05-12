@@ -167,6 +167,27 @@ as a PR comment containing `@copilot review …`, which invokes Copilot
 Coding Agent. The label auto-removes after posting so you can re-apply
 it later to re-trigger.
 
+> **One-time setup:** this workflow needs a fine-grained PAT, not the
+> default `GITHUB_TOKEN`. Comments posted by `github-actions[bot]` do
+> NOT trigger `@copilot` mentions — that's GitHub's recursion-prevention
+> rule. (GitHub App installation tokens are also unsupported for this,
+> per [github/gh-aw#19765](https://github.com/github/gh-aw/issues/19765).)
+> The canonical workaround:
+>
+> 1. github.com → your profile → Settings → Developer settings →
+>    Personal access tokens → Fine-grained tokens → **Generate new token**.
+> 2. Repository access: this repo only.
+> 3. Permissions: **Pull requests = Read and write**, **Contents = Read**.
+> 4. Expiry: your call (90 days or 1 year is typical).
+> 5. Copy the token.
+> 6. This repo → Settings → Secrets and variables → Actions →
+>    **New repository secret** → name `COPILOT_TRIGGER_PAT`, paste the
+>    token. The workflow fails fast with a clear error if the secret
+>    isn't set.
+>
+> The token owner needs an active Copilot subscription — that's what
+> makes `@copilot` work in the comment Copilot will see.
+
 **Option 2 — GitHub Saved Reply** (one-click, account-level)
 
 In github.com → your profile → Settings → Saved replies → "Add a saved
