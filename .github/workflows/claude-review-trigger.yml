@@ -49,42 +49,50 @@ jobs:
             echo '__END_OF_PROMPT__'
           } >> "$GITHUB_OUTPUT"
 
+      - name: Write MCP config
+        # Claude Code reads MCP servers from --mcp-config <path>, not from
+        # the `settings` input (settings supports other Claude Code config
+        # but our mcpServers there were silently ignored — we saw "MCP
+        # server not registered" in prior runs even though the URL
+        # substituted correctly into the settings JSON).
+        env:
+          ARC1_URL: ${{ vars.ARC1_URL }}
+          ARC1_API_KEY: ${{ secrets.ARC1_API_KEY }}
+        run: |
+          cat > /tmp/mcp.json <<JSON
+          {
+            "mcpServers": {
+              "arc-1": {
+                "type": "http",
+                "url": "$ARC1_URL/mcp",
+                "headers": {
+                  "Authorization": "Bearer $ARC1_API_KEY"
+                }
+              }
+            }
+          }
+          JSON
+
       - uses: anthropics/claude-code-action@v1
         env:
           # Surface PR identifiers to Claude so the prompt's
-          # `gh pr comment $PR_NUMBER ...` works.
+          # `gh pr comment $PR_NUMBER ...` and `gh api ... pulls/$PR_NUMBER/reviews` work.
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: ${{ steps.prompt.outputs.value }}
-          # MCP config inline. ARC1_API_KEY is a plain repo secret.
-          settings: |
-            {
-              "mcpServers": {
-                "arc-1": {
-                  "type": "http",
-                  "url": "${{ vars.ARC1_URL }}/mcp",
-                  "headers": {
-                    "Authorization": "Bearer ${{ secrets.ARC1_API_KEY }}"
-                  }
-                }
-              }
-            }
           # claude_args breakdown:
           #   --model claude-sonnet-4-6   fast & cheap enough for review.
-          #   --max-turns 15             cap on agent loop. Empirical:
-          #                              previous unbounded run at 10 turns
-          #                              cost $0.44; bounded run at 8 turns
-          #                              cost $0.11 but hit the cap before
-          #                              posting. 15 is the sweet spot —
-          #                              enough headroom to finish, low
-          #                              enough to bound bad behaviour.
+          #   --max-turns 15             cap on agent loop.
+          #   --mcp-config /tmp/mcp.json  register the arc-1 MCP server.
           #   --allowedTools             tight allowlist: read-side ARC-1
           #                              tools the prompt asks for, plus
-          #                              narrow `gh pr comment` /
-          #                              `gh pr diff` for the post step.
+          #                              narrow `gh` subcommands for posting
+          #                              the PR review (overall body +
+          #                              inline comments via the reviews API).
           claude_args: |
             --model claude-sonnet-4-6
             --max-turns 15
+            --mcp-config /tmp/mcp.json
             --allowedTools mcp__arc-1__SAPRead,mcp__arc-1__SAPDiagnose,mcp__arc-1__SAPNavigate,mcp__arc-1__SAPLint,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(cat:*),Bash(tee:*)
