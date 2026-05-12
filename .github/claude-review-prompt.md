@@ -1,44 +1,57 @@
-Review this pull request using the **arc-1** MCP server.
+Review the pull request diff. The static `abaplint` check has already
+posted its findings as inline annotations — **don't repeat them**. Focus
+on the cross-object / semantic issues only abaplint can't see.
 
-For each changed ABAP object in the diff, do these in order before
-commenting:
+## Tool budget — keep it tight
 
-1. **`SAPRead`** the activated version of the object from the live SAP
-   system. Compare against the diff — flag any drift between what's in
-   GitHub and what's active in SAP. (Drift is a real risk: someone may
-   have changed the file in GitHub but not abapGit-pulled it back into
-   SAP, or vice-versa.)
-2. **`SAPDiagnose(action="syntax")`** on each changed object to verify
-   it compiles. Cite the result.
-3. **`SAPNavigate(action="references")`** on changed methods, types, or
-   fields. Name any callers that would break.
-4. **`SAPLint`** with the cloud preset for a second opinion vs. the
-   repo's `abaplint.jsonc`. **Don't repeat findings the abaplint check
-   already posted** as inline annotations on the diff — flag only what
-   the cloud preset surfaces *additionally*.
-5. **`SAPQuery`** sparingly — only when it adds signal (customizing-
-   table spot checks, BAdI registration checks). Don't dump rows of
-   business data into the comment.
+You have access to the `arc-1` MCP server. **Use 2–5 tool calls
+total**, not more. Pick the right ones for what's in the diff. Don't
+explore beyond the changed files.
 
-Then post **one** summary review grouped by severity:
+Useful patterns:
 
-- **Blocking** — bugs, broken contracts, security issues, clean-core
-  violations that would be rejected by ATC.
-- **Should fix** — missing error handling, deprecated APIs, dead code,
-  inconsistencies with the rest of the package.
-- **Consider** — naming, readability, minor refactors.
+- **One `SAPRead` per changed file** to check for GitHub↔SAP drift (PR
+  source vs activated source). For classes, use `method="*"` first to
+  see signatures cheaply; only read individual methods if needed.
+- **One `SAPDiagnose(action="syntax")`** ONLY if you suspect a syntax
+  issue. Skip otherwise — the `abaplint` check already covers static
+  validation.
+- **One `SAPNavigate(action="references")`** ONLY if the PR changes a
+  public signature (interface method, class public method, public
+  type). Skip for internal-only changes.
+- Skip `SAPLint`, `SAPSearch`, `SAPContext`, `SAPQuery` unless you have
+  a specific reason — they overlap with checks already running.
 
-For each finding, cite **file:line** and **quote the ARC-1 tool result**
-that informed it (e.g. `SAPDiagnose returned hasErrors=false`,
-`SAPNavigate found 3 callers: ZARC1_TASK_LIST, ...`). That makes the
-review auditable — anyone reading later can trace which MCP call backed
-each claim.
+## Output — single comment, severity-grouped
 
-Repo conventions:
+Post **one** review comment using:
 
-- Domain: `ZARC1_D_*` · Data element: `ZARC1_E_*` · Table: `ZARC1_T_*`
-- Message class: `ZARC1_*` · Interface: `ZIF_ARC1_*` · Class: `ZCL_ARC1_*`
-- Report: `ZARC1_*`
+```bash
+gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
+## Claude review of <commit-sha>
 
-If a PR introduces a new object that violates these, flag it under
-"Should fix".
+**Blocking** — bugs, broken contracts, security issues, clean-core
+violations that would be rejected by ATC.
+- <file:line> — <finding>. (Cite the ARC-1 tool result that informed
+  it, e.g. `SAPRead showed line drift between GitHub and active`.)
+
+**Should fix** — missing error handling, deprecated APIs, dead code,
+inconsistencies with the rest of the package.
+- ...
+
+**Consider** — naming, readability, minor refactors.
+- ...
+
+_If a section has no findings, omit it. If nothing is wrong, post just
+"Looks good. Tool calls: <list>."_
+EOF
+)"
+```
+
+`$PR_NUMBER` is set in the workflow environment. Quote your review body
+correctly (the heredoc above is the safest way).
+
+## Repo conventions (only flag deviations)
+
+- DOMA `ZARC1_D_*` · DTEL `ZARC1_E_*` · TABL `ZARC1_T_*`
+- MSAG/PROG `ZARC1_*` · INTF `ZIF_ARC1_*` · CLAS `ZCL_ARC1_*`

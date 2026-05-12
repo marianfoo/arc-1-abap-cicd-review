@@ -1,14 +1,17 @@
 name: Trigger Claude review
 
-# Parallel to copilot-review-trigger.yml — same flow, different engine.
-# Apply the `claude:review` label to a PR → this workflow runs Claude
-# Code in CI, talking to ARC-1 via MCP, posts a review as `claude[bot]`.
+# Apply the `claude:review` label to a PR → Claude Code runs in CI,
+# reads the diff, queries ARC-1 via MCP, posts ONE review comment via
+# `gh pr comment`.
 #
-# Why this is simpler than the Copilot trigger:
-#   - Claude isn't a GitHub bot; it runs IN our workflow via
-#     anthropics/claude-code-action and posts via GITHUB_TOKEN.
-#   - No "bot can't mention bot" issue, so no PAT needed.
-#   - MCP config goes inline in the workflow (no separate UI config).
+# Cost guardrails (see also .github/claude-review-prompt.md):
+#   - --max-turns caps the agent loop length.
+#   - allowedTools is a tight allowlist; Claude can't wander into other
+#     ARC-1 tools or arbitrary Bash.
+#   - The prompt explicitly budgets 2-5 tool calls and tells Claude to
+#     post a single comment via gh CLI (instead of relying on the
+#     action's built-in delivery heuristics, which were silent in
+#     previous runs).
 
 on:
   pull_request:
@@ -18,8 +21,8 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
-  id-token: write     # for OIDC (Bedrock/Vertex variants; harmless otherwise)
-  actions: read       # so Claude can read CI run results when reviewing
+  id-token: write
+  actions: read
 
 jobs:
   claude-review:
@@ -47,19 +50,15 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - uses: anthropics/claude-code-action@v1
+        env:
+          # Surface PR identifiers to Claude so the prompt's
+          # `gh pr comment $PR_NUMBER ...` works.
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: ${{ steps.prompt.outputs.value }}
-          # use_sticky_comment: deliver the review as a single sticky
-          # comment that updates in place on re-runs (instead of stacking
-          # duplicates). track_progress isn't compatible with the
-          # `labeled` event type per the action's own validation, so we
-          # use sticky-comment delivery instead.
-          use_sticky_comment: 'true'
-          # MCP servers live in Claude Code's settings JSON. Keys mirror
-          # the Copilot Cloud agent setup (Settings → Copilot → MCP)
-          # but reference our regular ARC1_API_KEY secret (no
-          # COPILOT_MCP_ prefix — that's Copilot-specific).
+          # MCP config inline. ARC1_API_KEY is a plain repo secret.
           settings: |
             {
               "mcpServers": {
@@ -72,10 +71,18 @@ jobs:
                 }
               }
             }
-          # --allowedTools explicit allowlist: read-only ARC-1 surface.
-          # No SAPWrite / SAPActivate / SAPManage / SAPTransport / SAPGit.
-          # --model: Sonnet 4.6 is the default — fast + smart enough for
-          # PR review. Swap to claude-opus-4-7 for higher-stakes reviews.
+          # claude_args breakdown:
+          #   --model claude-sonnet-4-6   fast & cheap enough for review.
+          #   --max-turns 8              cap agent loop. Previous unbounded
+          #                              run hit ~10 turns and 478k tokens;
+          #                              8 is enough for: read diff →
+          #                              1-3 MCP calls → write review →
+          #                              post via gh.
+          #   --allowedTools             tight allowlist. Only the read-side
+          #                              ARC-1 tools the prompt asks for,
+          #                              plus a narrow `gh pr comment` for
+          #                              the final post step.
           claude_args: |
-            --allowedTools mcp__arc-1__SAPRead,mcp__arc-1__SAPSearch,mcp__arc-1__SAPNavigate,mcp__arc-1__SAPContext,mcp__arc-1__SAPDiagnose,mcp__arc-1__SAPLint,mcp__arc-1__SAPQuery
             --model claude-sonnet-4-6
+            --max-turns 8
+            --allowedTools mcp__arc-1__SAPRead,mcp__arc-1__SAPDiagnose,mcp__arc-1__SAPNavigate,mcp__arc-1__SAPLint,Bash(gh pr comment:*),Bash(gh pr diff:*)
