@@ -1,0 +1,100 @@
+name: SAP dump deep-dive
+
+# Stage 2 of the dump-triage pattern. The shallow agent
+# (sap-dump-triage.yml) opens one issue per new ST22 dump with a
+# 2-4 sentence hypothesis. When a human (or some routing logic)
+# wants a deeper look, they apply the `dump:investigate` label to
+# that issue and THIS workflow fires:
+#
+#   - Reads the dump ID from the issue body's HTML marker.
+#   - Pulls the full dump text + source of the failing object via
+#     ARC-1 MCP.
+#   - Posts ONE comment with root cause + suggested fix +
+#     verification steps + cited tool calls.
+#   - Updates labels: needs-triage → dump:investigated.
+#
+# Cost: ~$0.50-1.50 per deep-dive (full source reads dominate).
+# The label auto-removes after firing so re-applying re-triggers.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+concurrency:
+  group: deep-dive-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  deep-dive:
+    if: github.event.label.name == 'dump:investigate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Auto-remove trigger label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          gh api -X DELETE \
+            "repos/${{ github.repository }}/issues/$ISSUE/labels/dump:investigate" || true
+
+      - name: Extract dump ID from issue body
+        id: extract
+        env:
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          DUMP_ID=$(printf '%s' "$BODY" | sed -nE 's/.*<!-- dump-id: ([^ ]+) -->.*/\1/p' | head -1)
+          if [ -z "$DUMP_ID" ]; then
+            echo "::error::No <!-- dump-id: ... --> marker found in issue body. Is this a sap:dump issue?"
+            exit 1
+          fi
+          echo "dump_id=$DUMP_ID" >> "$GITHUB_OUTPUT"
+          echo "Extracted dump ID: $DUMP_ID"
+
+      - name: Write MCP config
+        env:
+          ARC1_URL: ${{ vars.ARC1_URL }}
+          ARC1_API_KEY: ${{ secrets.ARC1_API_KEY }}
+        run: |
+          cat > /tmp/mcp.json <<JSON
+          {
+            "mcpServers": {
+              "arc-1": {
+                "type": "http",
+                "url": "$ARC1_URL/mcp",
+                "headers": { "Authorization": "Bearer $ARC1_API_KEY" }
+              }
+            }
+          }
+          JSON
+
+      - name: Load prompt
+        id: prompt
+        run: |
+          {
+            echo 'value<<__END_OF_PROMPT__'
+            cat .github/sap-dump-deep-dive-prompt.md
+            echo '__END_OF_PROMPT__'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: anthropics/claude-code-action@v1
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          DUMP_ID: ${{ steps.extract.outputs.dump_id }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.prompt.outputs.value }}
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 25
+            --mcp-config /tmp/mcp.json
+            --allowedTools mcp__arc-1__SAPDiagnose,mcp__arc-1__SAPRead,mcp__arc-1__SAPNavigate,mcp__arc-1__SAPSearch,Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(cat:*),Bash(tee:*),Bash(echo:*)
