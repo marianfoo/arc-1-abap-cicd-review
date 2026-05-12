@@ -45,14 +45,29 @@ Cite the ARC-1 tool result that informed each finding (e.g. "_SAPRead
 showed line drift between repo and active_", "_SAPDiagnose returned
 hasErrors=false_").
 
-**When you have a concrete fix, include a `suggestion` code block** so
-GitHub renders an "Apply suggestion" button. The block must contain
-**exactly** what the new content should be for the line range. Single-
-line suggestions only need `line:`; multi-line suggestions need both
-`start_line:` and `line:` (and `side` / `start_side` default to
-`RIGHT`, which is correct for normal additions). Example payload —
-mixing one plain comment (no fix), one single-line suggestion, and one
-multi-line suggestion:
+**Whenever you can name the exact replacement lines, INCLUDE a
+`suggestion` code block.** This is the most important UX feature of a
+review — it gives the human a one-click "Apply" button instead of
+making them retype the fix. **Default to including suggestions; only
+skip them when the right fix genuinely is ambiguous.**
+
+Two especially good cases — **always** use suggestion blocks here:
+
+- **Code to delete** (debug `BREAK-POINT.`, a stray `WRITE`, a whole
+  block of dead code). Use an empty suggestion block — GitHub renders
+  this as a "delete these lines" button.
+- **Anti-pattern with an obvious replacement** (direct table `SELECT`
+  on a SAP-standard table → released CDS view; chained `DATA: BEGIN
+  OF` → `TYPES` + `DATA`; obsolete keyword → modern equivalent).
+
+For a multi-line suggestion (replacing lines 55–63 with empty content,
+for example) use `start_line:` and `line:` to span the range, and an
+empty fenced block for "delete this whole thing."
+
+The block must contain **exactly** what the new content should be for
+the line range. Whitespace matters. Example payload — mixing one plain
+comment (no fix), one single-line delete-suggestion, and one multi-line
+replacement-suggestion:
 
 ```bash
 cat > /tmp/review.json <<'EOF'
@@ -89,10 +104,11 @@ Suggestion-block rules:
 - To suggest **deleting** lines, use an empty `suggestion` block (just
   the opening + closing fences). The "Apply suggestion" button will
   remove the spanned lines.
-- Don't write a `suggestion` block when you're unsure of the right
-  fix — leave it as a plain comment. A wrong suggestion is worse than
-  no suggestion (the reviewer applies, breaks something, and now
-  trusts you less).
+- Only **skip** a suggestion block when (a) the right fix needs human
+  product decisions (which CDS view? which exception type?) or (b) it
+  would span too many lines to be safe. For "delete this debug code"
+  or "replace MARA with the standard CDS lookup" — both are obvious
+  enough that a suggestion is the right call. Default to suggesting.
 - Only suggest changes on **lines in this PR's diff**. GitHub rejects
   suggestions on unchanged lines anyway, but check `gh pr diff` first
   if uncertain.
