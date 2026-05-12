@@ -3,114 +3,24 @@ name: PR checks
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'abaplint.jsonc'
-      - '.github/workflows/pr.yml'
 
 permissions:
   contents: read
+  checks: write
   pull-requests: write
-  issues: write
 
 jobs:
-  # ─── 1. Static lint (abaplint) ──────────────────────────────────────
-  # Runs entirely on the GH runner. No SAP, no ARC-1. Fast (~30s).
+  # ── Static lint (the canonical abaplint action) ──
+  # Annotates findings inline on the PR diff via the Checks API.
+  # Config: ../../abaplint.jsonc at repo root.
   abaplint:
-    name: abaplint (static)
+    name: abaplint
     runs-on: ubuntu-latest
+    # GITHUB_TOKEN is read-only on forked-PR runs — the action no-ops
+    # the Checks annotation, but the exit code still gates the PR.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install abaplint
-        run: npm install --no-save @abaplint/cli@latest
-
-      - name: Run abaplint
-        run: npx abaplint --format default --outformat=problem-matcher
-        # Non-zero exit on errors fails the job; warnings do not.
-
-  # ─── 2. ARC-1 SAPLint (cloud preset) ────────────────────────────────
-  # Runs ARC-1's lint preset against the changed objects via the
-  # BTP CF ARC-1 deployment. CI never touches SAP creds directly —
-  # it talks to ARC-1 over HTTPS with an API key.
-  arc1-saplint:
-    name: ARC-1 SAPLint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-
-      - name: Identify changed objects
-        id: diff
-        run: |
-          chmod +x .github/scripts/parse-abapgit-diff.sh
-          .github/scripts/parse-abapgit-diff.sh "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
-            > changed.tsv
-          echo "─── Changed objects ───"
-          cat changed.tsv
-
-      - name: SAPLint each changed object via ARC-1
+      - uses: abaplint/actions-abaplint@main
         env:
-          ARC1_URL: ${{ vars.ARC1_URL }}             # e.g. https://arc-1.cfapps.eu10.hana.ondemand.com
-          ARC1_API_KEY: ${{ secrets.ARC1_API_KEY }}  # ci profile: viewer-data
-        run: |
-          set -euo pipefail
-          fail=0
-          while IFS=$'\t' read -r type name; do
-            [ -z "$type" ] && continue
-            echo "─── SAPLint $type $name ───"
-            payload=$(jq -nc \
-              --arg t "$type" --arg n "$name" \
-              '{jsonrpc:"2.0",id:"1",method:"tools/call",
-                params:{name:"SAPLint",
-                arguments:{action:"lint",type:$t,name:$n}}}')
-            resp=$(curl -sf -X POST \
-              -H "Authorization: Bearer $ARC1_API_KEY" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json, text/event-stream" \
-              "$ARC1_URL/mcp" \
-              -d "$payload") || { echo "::error::ARC-1 unreachable for $type $name"; fail=1; continue; }
-            echo "$resp" | jq -r '.result.content[0].text // .'
-            errs=$(echo "$resp" | jq -r '.result.content[0].text // ""' | grep -c '"severity":"error"' || true)
-            [ "$errs" -gt 0 ] && fail=1
-          done < changed.tsv
-          exit $fail
-
-  # ─── 3. LLM PR review (Claude Code Action + ARC-1) ──────────────────
-  # The agent reads the PR diff, uses ARC-1 to pull surrounding
-  # context from the live SAP system, and posts one summary comment.
-  llm-review:
-    name: LLM review (Claude + ARC-1)
-    runs-on: ubuntu-latest
-    # Skip on draft PRs and on PRs from forks (no access to secrets).
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-
-      - name: Claude Code review
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Inline MCP server config — points the agent at your ARC-1.
-          mcp_config: |
-            {
-              "mcpServers": {
-                "arc-1": {
-                  "type": "http",
-                  "url": "${{ vars.ARC1_URL }}/mcp",
-                  "headers": {
-                    "Authorization": "Bearer ${{ secrets.ARC1_API_KEY }}"
-                  }
-                }
-              }
-            }
-          # Repo-level reviewer instructions live in .github/CLAUDE.md.
-          prompt: |
-            You are reviewing a pull request in an SAP abapGit-managed repository.
-            Read .github/CLAUDE.md for repo-specific instructions before starting.
-            Post ONE summary comment on the PR using `gh pr comment`.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
