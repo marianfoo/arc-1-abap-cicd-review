@@ -1,0 +1,141 @@
+{
+  // abaplint config for ARC-1 PR-workflow showcase.
+  // Target: S/4HANA 2023 on-prem (SAP_BASIS 758).
+  // Docs: https://rules.abaplint.org/
+  "global": {
+    "files": "/src/**/*.*",
+    "skipGeneratedGatewayClasses": true,
+    "skipGeneratedPersistentClasses": true,
+    "skipGeneratedFunctionGroups": true
+  },
+  "syntax": {
+    "version": "v758",
+    "errorNamespace": "^(Z|Y)",
+    "globalConstants": [],
+    "globalMacros": []
+  },
+  "rules": {
+    "avoid_use": {
+      "define": true,
+      "endselect": true,
+      "execSQL": true,
+      "kernelCall": true,
+      "communication": true,
+      "statics": true,
+      "systemCall": true,
+      "defaultKey": true,
+      "break": true
+    },
+    "begin_end_names": true,
+    "check_subrc": {
+      "allowed": [0, 4]
+    },
+    "check_syntax": true,
+    "class_attribute_names": {
+      "instance": "^[gms]._.+$"
+    },
+    "cloud_types": false,
+    "constructor_visibility_public": true,
+    "contains_empty_class": true,
+    "cyclomatic_complexity": {
+      "limit": 25
+    },
+    "definitions_top": true,
+    "double_space": {
+      "keywords": true,
+      "startParen": true,
+      "endParen": true,
+      "afterColon": true
+    },
+    "empty_line_in_statement": {
+      "allowChained": true
+    },
+    "exit_or_check": true,
+    "exporting": true,
+    "form_no_parameter": true,
+    "forbidden_pseudo_and_pragma": {
+      "pseudo": ["#EC FB_OOON", "#EC FB_PWD", "#EC NOTEXT"]
+    },
+    "form_parameters_obsolete": true,
+    "functional_writing": false,
+    "if_in_if": true,
+    "in_statement_indentation": {
+      "blockStatements": 2,
+      "ignoreExceptions": true
+    },
+    "indentation": {
+      "alignTryCatch": false,
+      "globalClassSkipFirst": false,
+      "ignoreExceptions": true
+    },
+    "keyword_case": {
+      "style": "lower",
+      "ignoreExceptions": true,
+      "ignoreLowerClassImplmentationStatement": true
+    },
+    "line_length": {
+      "length": 200
+    },
+    "line_only_punc": {
+      "ignoreExceptions": true
+    },
+    "max_one_method_parameter_per_line": false,
+    "max_one_statement": true,
+    "method_implemented_twice": true,
+    "method_length": {
+      "statements": 100,
+      "ignoreTestClasses": true
+    },
+    "method_parameter_names": {
+      "importing": "^I._.+$",
+      "returning": "^R._.+$",
+      "changing": "^C._.+$",
+      "exporting": "^E._.+$"
+    },
+    "msag_consistency": true,
+    "names_no_dash": true,
+    "no_chained_assignment": true,
+    "no_external_form_calls": true,
+    "no_inline_in_optional_branch": true,
+    "no_public_attributes": {
+      "allowReadOnly": true
+    },
+    "no_yoda_conditions": true,
+    "obsolete_statement": {
+      "refresh": true,
+      "compute": true,
+      "add": true,
+      "subtract": true,
+      "multiply": true,
+      "divide": true,
+      "move": true,
+      "requested": true,
+      "occurs": true,
+      "withHeaderLine": true
+    },
+    "parser_error": true,
+    "prefer_inline": true,
+    "prefer_is_not": true,
+    "preferred_compare_operator": {
+      "badOperators": ["EQ", "><", "NE", "GE", "LE", "GT", "LT"]
+    },
+    "remove_descriptions": false,
+    "selection_screen_naming": {
+      "parameters": "^P._.+$",
+      "selectOptions": "^S._.+$"
+    },
+    "sequential_blank": {
+      "lines": 4
+    },
+    "short_case": true,
+    "space_before_colon": true,
+    "sql_value": true,
+    "sy_modification": true,
+    "type_form_parameters": true,
+    "uncaught_exception": true,
+    "unreachable_code": true,
+    "use_class_based_exceptions": true,
+    "use_new": true,
+    "when_others_last": true
+  }
+}
