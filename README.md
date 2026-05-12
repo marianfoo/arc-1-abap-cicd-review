@@ -17,12 +17,13 @@ the diff text.
 - **[Issues labelled `sap:dump`](https://github.com/marianfoo/arc-1-abap-cicd-review/issues?q=is%3Aissue+label%3Asap%3Adump)** —
   autonomous Claude agent triages ST22 short dumps, opens one issue
   per new dump with a hypothesis and an urgency label.
-- **Three workflows** in [`.github/workflows/`](.github/workflows/),
+- **Four workflows** in [`.github/workflows/`](.github/workflows/),
   all sharing the same ARC-1 MCP backend:
   - `pr.yml` — abaplint via reviewdog
   - `copilot-review-trigger.yml` — label-triggered Copilot review
   - `claude-review-trigger.yml` — label-triggered Claude review
-  - `sap-dump-triage.yml` — scheduled / manual dump triage
+  - `sap-dump-triage.yml` — scheduled / manual dump triage (shallow)
+  - `sap-dump-deep-dive.yml` — label-triggered deep-dive on a dump issue
 
 ## Architecture
 
@@ -187,6 +188,24 @@ cron block in the file for autonomous mode). Each run:
 
 Caps: max 5 new dumps per run, `--max-turns 30`. Bounded cost (~$0.30
 worst case per run).
+
+### Deep-dive on a dump — label `dump:investigate`
+
+Apply the **`dump:investigate`** label to any `sap:dump` issue and
+[`sap-dump-deep-dive.yml`](.github/workflows/sap-dump-deep-dive.yml)
+fires. Claude:
+
+1. Extracts the dump ID from the issue body's HTML marker.
+2. Pulls the **full** dump text via `SAPDiagnose(includeFullText=true)`.
+3. Reads the failing source via `SAPRead` (method-level when possible).
+4. Posts ONE comment with root cause + suggested fix + verification
+   steps + cited tool calls.
+5. Updates labels: `needs-triage` → `dump:investigated`.
+
+Cost is higher than the shallow triage (~$0.50–1.50 per deep-dive)
+because full source reads are expensive. That's by design — the
+two-stage pattern keeps continuous coverage cheap (Stage 1) and
+spends real budget only where it pays off (Stage 2).
 
 ## Adapt it for your environment
 
