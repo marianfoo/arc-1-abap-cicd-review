@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_MSAG" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <T100A>
+    <ARBGB>ZARC1_TASK</ARBGB>
+    <STEXT>ARC-1 demo: task messages</STEXT>
+   </T100A>
+   <I18N_LANGS>
+    <LANGU/>
+   </I18N_LANGS>
+   <T100T>
+    <T100T>
+     <ARBGB>ZARC1_TASK</ARBGB>
+     <STEXT>ARC-1 demo: task messages</STEXT>
+    </T100T>
+   </T100T>
+   <T100_TEXTS>
+    <item>
+     <MSGNR>001</MSGNR>
+     <TEXT>Task &amp;1 created</TEXT>
+    </item>
+    <item>
+     <MSGNR>002</MSGNR>
+     <TEXT>Task &amp;1 not found</TEXT>
+    </item>
+    <item>
+     <MSGNR>003</MSGNR>
+     <TEXT>Title is required</TEXT>
+    </item>
+    <item>
+     <MSGNR>004</MSGNR>
+     <TEXT>Invalid status &amp;1</TEXT>
+    </item>
+    <item>
+     <MSGNR>005</MSGNR>
+     <TEXT>Task &amp;1 already closed</TEXT>
+    </item>
+   </T100_TEXTS>
+  </asx:values>
+ </asx:abap>
+</abapGit>
