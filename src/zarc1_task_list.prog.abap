@@ -7,11 +7,14 @@ report zarc1_task_list.
 
 " -- Seeded lint issue: chained DATA: BEGIN OF ... obsolete style ----- "
 " -- Modern equivalent: use a TYPES declaration + a separate DATA stmt. "
-data: begin of gs_filter,
-        status type zarc1_e_status,
-      end of gs_filter,
-      gt_tasks type standard table of zarc1_t_task,
-      go_service type ref to zif_arc1_task_service.
+types:
+  begin of ty_filter,
+    status type zarc1_e_status,
+  end of ty_filter.
+
+data gs_filter   type ty_filter.
+data gt_tasks    type standard table of zarc1_t_task.
+data go_service  type ref to zif_arc1_task_service.
 
 selection-screen begin of block b1 with frame title text-001.
 parameters: p_status type zarc1_e_status.
