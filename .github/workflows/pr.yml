@@ -54,16 +54,18 @@ jobs:
         # -reporter=github-pr-check creates a Check Run with annotations.
         # Visible in: (a) the PR's Checks tab → "abaplint" check (always),
         # (b) inline on Files Changed for findings on changed lines.
-        # -filter-mode=nofilter keeps all findings, not just diff-touching ones.
-        # -fail-level=error makes reviewdog exit non-zero on findings — we
-        # capture that in continue-on-error and gate the job at the end,
-        # so the summary-comment step still runs.
+        # -filter-mode=added gates only on findings INTRODUCED by this PR's
+        # diff. Pre-existing tech debt is shown in the sticky comment for
+        # visibility but does NOT block the merge — that's somebody-else's
+        # cleanup PR, not this one's responsibility.
+        # -fail-level=error makes the step fail on a new finding; the gate
+        # step at the end propagates that.
         run: |
           cat abaplint.checkstyle.xml | reviewdog \
             -f=checkstyle \
             -name=abaplint \
             -reporter=github-pr-check \
-            -filter-mode=nofilter \
+            -filter-mode=added \
             -fail-level=error
 
       - name: Build summary

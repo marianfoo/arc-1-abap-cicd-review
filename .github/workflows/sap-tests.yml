@@ -44,9 +44,15 @@ jobs:
         env:
           ARC1_URL: ${{ vars.ARC1_URL }}
           ARC1_API_KEY: ${{ secrets.ARC1_API_KEY }}
+        # ARC-1's HTTP MCP endpoint streams responses as text/event-stream
+        # by default. We strip the `data: ` line prefix to get plain JSON.
         run: |
           set -euo pipefail
           : > /tmp/unit-results.jsonl
+          if ! grep -q '^CLAS' changed.tsv; then
+            echo "No CLAS objects in this PR's diff — skipping unit tests."
+            exit 0
+          fi
           grep '^CLAS' changed.tsv | while IFS=$'\t' read -r type name; do
             echo "─── unit: $type $name ───"
             payload=$(jq -nc --arg n "$name" \
@@ -57,7 +63,8 @@ jobs:
               -H "Authorization: Bearer $ARC1_API_KEY" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json, text/event-stream" \
-              "$ARC1_URL/mcp" -d "$payload")
+              "$ARC1_URL/mcp" -d "$payload" \
+              | sed -n 's/^data: //p' | head -1)
             jq -c --arg n "$name" '{name:$n, result:.result}' \
               <<<"$resp" >> /tmp/unit-results.jsonl
           done
@@ -70,6 +77,10 @@ jobs:
         run: |
           set -euo pipefail
           : > /tmp/atc-results.jsonl
+          if ! grep -qE '^(CLAS|INTF|PROG|FUGR)' changed.tsv; then
+            echo "No code objects in this PR's diff — skipping ATC."
+            exit 0
+          fi
           grep -E '^(CLAS|INTF|PROG|FUGR)' changed.tsv | \
           while IFS=$'\t' read -r type name; do
             echo "─── atc: $type $name ───"
@@ -81,7 +92,8 @@ jobs:
               -H "Authorization: Bearer $ARC1_API_KEY" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json, text/event-stream" \
-              "$ARC1_URL/mcp" -d "$payload")
+              "$ARC1_URL/mcp" -d "$payload" \
+              | sed -n 's/^data: //p' | head -1)
             jq -c --arg t "$type" --arg n "$name" '{type:$t, name:$n, result:.result}' \
               <<<"$resp" >> /tmp/atc-results.jsonl
           done
