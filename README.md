@@ -65,6 +65,13 @@ linting.
 
 ## Reproducing this setup
 
+### MCP servers and exposed tools (Copilot cloud agent)
+
+This repo configures one MCP server for Copilot:
+
+- `arc-1` → `SAPRead`, `SAPSearch`, `SAPNavigate`, `SAPContext`,
+  `SAPDiagnose`, `SAPLint`, `SAPQuery`
+
 ### Prerequisites
 
 - A SAP system with abapGit installed (report `ZABAPGIT` or
