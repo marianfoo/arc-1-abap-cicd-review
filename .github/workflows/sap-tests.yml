@@ -1,0 +1,181 @@
+name: SAP unit tests + ATC
+
+# Runs against the SAP system on every PR touching src/. Deterministic
+# bash + ARC-1 over MCP — no AI cost. Posts a sticky comment with:
+#   - ABAP Unit test results per changed CLAS
+#   - ATC findings per changed CLAS/INTF/PROG/FUGR
+#
+# Read-only: uses the viewer-sql API key. No writes to SAP.
+#
+# Tests run against ACTIVATED objects in SAP. The common abapGit flow
+# (edit → activate → push) means the activated source matches the PR.
+# If your flow pushes before activating, add an upstream pull/activate
+# step in a dedicated PR sandbox system before this workflow fires.
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['src/**']
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sap-tests:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v6
+        with: { fetch-depth: 0 }
+
+      - name: Identify changed ABAP objects
+        id: diff
+        run: |
+          chmod +x .github/scripts/parse-abapgit-diff.sh
+          .github/scripts/parse-abapgit-diff.sh \
+            "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
+            > changed.tsv
+          echo "─── Changed objects ───"
+          cat changed.tsv || echo "(none)"
+
+      - name: Run ABAP Unit tests via ARC-1 (CLAS only)
+        id: unit
+        env:
+          ARC1_URL: ${{ vars.ARC1_URL }}
+          ARC1_API_KEY: ${{ secrets.ARC1_API_KEY }}
+        run: |
+          set -euo pipefail
+          : > /tmp/unit-results.jsonl
+          grep '^CLAS' changed.tsv | while IFS=$'\t' read -r type name; do
+            echo "─── unit: $type $name ───"
+            payload=$(jq -nc --arg n "$name" \
+              '{jsonrpc:"2.0",id:"1",method:"tools/call",
+                params:{name:"SAPDiagnose",
+                arguments:{action:"unittest",type:"CLAS",name:$n}}}')
+            resp=$(curl -fsS -X POST \
+              -H "Authorization: Bearer $ARC1_API_KEY" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json, text/event-stream" \
+              "$ARC1_URL/mcp" -d "$payload")
+            jq -c --arg n "$name" '{name:$n, result:.result}' \
+              <<<"$resp" >> /tmp/unit-results.jsonl
+          done
+
+      - name: Run ATC via ARC-1 (CLAS/INTF/PROG/FUGR)
+        id: atc
+        env:
+          ARC1_URL: ${{ vars.ARC1_URL }}
+          ARC1_API_KEY: ${{ secrets.ARC1_API_KEY }}
+        run: |
+          set -euo pipefail
+          : > /tmp/atc-results.jsonl
+          grep -E '^(CLAS|INTF|PROG|FUGR)' changed.tsv | \
+          while IFS=$'\t' read -r type name; do
+            echo "─── atc: $type $name ───"
+            payload=$(jq -nc --arg t "$type" --arg n "$name" \
+              '{jsonrpc:"2.0",id:"1",method:"tools/call",
+                params:{name:"SAPDiagnose",
+                arguments:{action:"atc",type:$t,name:$n}}}')
+            resp=$(curl -fsS -X POST \
+              -H "Authorization: Bearer $ARC1_API_KEY" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json, text/event-stream" \
+              "$ARC1_URL/mcp" -d "$payload")
+            jq -c --arg t "$type" --arg n "$name" '{type:$t, name:$n, result:.result}' \
+              <<<"$resp" >> /tmp/atc-results.jsonl
+          done
+
+      - name: Build sticky summary
+        run: |
+          python3 .github/scripts/build-sap-test-summary.py \
+            /tmp/unit-results.jsonl /tmp/atc-results.jsonl \
+            > /tmp/summary.md
+          echo "─── summary ───"
+          cat /tmp/summary.md
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: sap-tests
+          path: /tmp/summary.md
+
+      - name: Post inline ATC findings on the diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        # ATC findings come with a line number per object. Convert to
+        # PR review comments so they appear inline on Files Changed
+        # (only on lines that ARE in the diff — others go in the
+        # sticky comment).
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' /tmp/atc-results.jsonl > /tmp/inline-review.json
+          import json, os, sys
+          path = sys.argv[1]
+          changed_paths = set()
+          comments = []
+          # Walk the JSONL once, map TYPE+NAME → abapGit filename.
+          ext_for = {
+              "CLAS": "clas", "INTF": "intf", "PROG": "prog",
+              "FUGR": "fugr",
+          }
+          if os.path.exists(path):
+              for line in open(path):
+                  rec = json.loads(line)
+                  try:
+                      payload = json.loads(rec["result"]["content"][0]["text"])
+                  except Exception:
+                      continue
+                  ext = ext_for.get(rec.get("type", ""))
+                  if not ext:
+                      continue
+                  fname = f"src/{rec['name'].lower()}.{ext}.abap"
+                  for f in payload.get("findings", []) or []:
+                      line_no = int(f.get("line", 0) or 0)
+                      if line_no <= 0:
+                          continue
+                      icon = {1: "🟥", 2: "🟧", 3: "🟨"}.get(int(f.get("priority", 9)), "⬜")
+                      comments.append({
+                          "path": fname,
+                          "line": line_no,
+                          "body": (
+                              f"**{icon} ATC P{f.get('priority','?')} — {f.get('checkTitle','')}**\n\n"
+                              f"{f.get('messageTitle','')}\n\n"
+                              f"_Reported by ARC-1 `SAPDiagnose action=\"atc\"` on the activated SAP version._"
+                          ),
+                      })
+          json.dump({
+              "event": "COMMENT",
+              "body": "",
+              "comments": comments,
+          }, sys.stdout)
+          PY
+          if [ "$(jq '.comments | length' /tmp/inline-review.json)" -gt 0 ]; then
+            echo "Posting $(jq '.comments | length' /tmp/inline-review.json) inline ATC comments..."
+            gh api --method POST \
+              "repos/${{ github.repository }}/pulls/$PR/reviews" \
+              --input /tmp/inline-review.json || \
+              echo '::warning::Inline ATC posting failed; findings remain in the sticky comment.'
+          else
+            echo "No diff-line ATC findings to post inline (all in sticky)."
+          fi
+
+      - name: Gate
+        run: |
+          # Fail on any failed unit test or P1/P2 ATC finding.
+          jq -se '
+            map(.result.content[0].text | fromjson) |
+            map(.[] | select(.status == "failed" or .status == "error")) |
+            length' /tmp/unit-results.jsonl > /tmp/fails.txt
+          jq -se '
+            map(.result.content[0].text | fromjson) |
+            map(.findings[]? | select(.priority <= 2)) |
+            length' /tmp/atc-results.jsonl > /tmp/atc-high.txt
+          fails=$(cat /tmp/fails.txt 2>/dev/null || echo 0)
+          atc=$(cat /tmp/atc-high.txt 2>/dev/null || echo 0)
+          echo "Failed unit tests: $fails / High-priority ATC: $atc"
+          if [ "$fails" -gt 0 ] || [ "$atc" -gt 0 ]; then
+            echo "::error::SAP tests gate failed ($fails unit + $atc high-prio ATC)."
+            exit 1
+          fi
