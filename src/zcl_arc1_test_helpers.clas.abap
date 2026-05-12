@@ -27,6 +27,7 @@ class zcl_arc1_test_helpers definition
     methods normalize_unknown_defaults for testing.
     methods is_open_true               for testing.
     methods is_open_false              for testing.
+    methods is_open_cancelled          for testing.
 endclass.
 
 
@@ -77,6 +78,11 @@ class zcl_arc1_test_helpers implementation.
   method is_open_false.
     cl_abap_unit_assert=>assert_false(
       act = zcl_arc1_test_helpers=>is_open_status( 'D' ) ).
+  endmethod.
+
+  method is_open_cancelled.
+    cl_abap_unit_assert=>assert_false(
+      act = zcl_arc1_test_helpers=>is_open_status( 'X' ) ).
   endmethod.
 
 endclass.
