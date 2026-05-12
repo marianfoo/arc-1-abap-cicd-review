@@ -87,4 +87,4 @@ jobs:
           claude_args: |
             --model claude-sonnet-4-6
             --max-turns 15
-            --allowedTools mcp__arc-1__SAPRead,mcp__arc-1__SAPDiagnose,mcp__arc-1__SAPNavigate,mcp__arc-1__SAPLint,Bash(gh pr comment:*),Bash(gh pr diff:*)
+            --allowedTools mcp__arc-1__SAPRead,mcp__arc-1__SAPDiagnose,mcp__arc-1__SAPNavigate,mcp__arc-1__SAPLint,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(cat:*),Bash(tee:*)

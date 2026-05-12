@@ -19,37 +19,67 @@ Useful patterns:
 - **One `SAPNavigate(action="references")`** ONLY if the PR changes a
   public signature (interface method, class public method, public
   type). Skip for internal-only changes.
-- Skip `SAPLint`, `SAPSearch`, `SAPContext`, `SAPQuery` unless you have
-  a specific reason — they overlap with checks already running.
+- Skip `SAPLint` unless you have a specific reason — it overlaps with
+  the abaplint job that already ran.
 
-## Output — single comment, severity-grouped
+## Output — Pull Request Review with inline comments
 
-Post **one** review comment using:
+Post your findings as **one Pull Request Review** that contains:
+
+- An **overall body** for cross-file / general findings.
+- **Inline comments** for findings attached to specific changed lines.
+
+**Important constraint:** GitHub only accepts inline comments on lines
+that are in the PR's diff hunks. If you can't attach a finding to a
+specific changed line, put it in the overall body instead.
+
+Step 1 — see which lines are eligible for inline comments:
 
 ```bash
-gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
-## Claude review of <commit-sha>
-
-**Blocking** — bugs, broken contracts, security issues, clean-core
-violations that would be rejected by ATC.
-- <file:line> — <finding>. (Cite the ARC-1 tool result that informed
-  it, e.g. `SAPRead showed line drift between GitHub and active`.)
-
-**Should fix** — missing error handling, deprecated APIs, dead code,
-inconsistencies with the rest of the package.
-- ...
-
-**Consider** — naming, readability, minor refactors.
-- ...
-
-_If a section has no findings, omit it. If nothing is wrong, post just
-"Looks good. Tool calls: <list>."_
-EOF
-)"
+gh pr diff $PR_NUMBER
 ```
 
-`$PR_NUMBER` is set in the workflow environment. Quote your review body
-correctly (the heredoc above is the safest way).
+Step 2 — build the review payload. Severity prefixes go in the comment
+body itself (`**Blocking**:`, `**Should fix**:`, `**Consider**:`).
+Cite the ARC-1 tool result that informed each finding (e.g. "_SAPRead
+showed line drift between repo and active_", "_SAPDiagnose returned
+hasErrors=false_"):
+
+```bash
+cat > /tmp/review.json <<'EOF'
+{
+  "event": "COMMENT",
+  "body": "## Claude review\n\nReviewed using the arc-1 MCP server.\n\n_Overall notes / cross-file findings here. If everything's covered inline, write a short summary instead._\n\n**Tool calls made:** SAPRead, SAPDiagnose, ...",
+  "comments": [
+    {
+      "path": "src/zarc1_task_list.prog.abap",
+      "line": 27,
+      "body": "**Should fix**: <one-line finding>. _Cite which ARC-1 tool result backs this._"
+    }
+  ]
+}
+EOF
+```
+
+Step 3 — post it:
+
+```bash
+gh api --method POST \
+  repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews \
+  --input /tmp/review.json
+```
+
+`event: "COMMENT"` posts a non-blocking review (use `REQUEST_CHANGES`
+only if you actually want to gate the merge). `{owner}` and `{repo}`
+are auto-resolved by `gh`.
+
+## If there are no findings
+
+Skip the inline comments and post just an approval-style summary:
+
+```bash
+gh pr comment $PR_NUMBER --body "✅ Looks good. Tool calls: SAPRead, SAPDiagnose. No findings beyond what abaplint already flagged."
+```
 
 ## Repo conventions (only flag deviations)
 
