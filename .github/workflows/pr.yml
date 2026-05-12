@@ -20,7 +20,10 @@ jobs:
     # the Checks annotation, but the exit code still gates the PR.
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      # abaplint/actions-abaplint@main is intentionally unpinned for
+      # this demo repo — gets latest rule definitions automatically.
+      # For production: pin to a commit SHA + rely on Dependabot.
       - uses: abaplint/actions-abaplint@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
