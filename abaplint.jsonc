@@ -53,9 +53,11 @@
     "exit_or_check": true,
     "exporting": true,
     "form_no_parameter": true,
-    "forbidden_pseudo_and_pragma": {
-      "pseudo": ["#EC FB_OOON", "#EC FB_PWD", "#EC NOTEXT"]
-    },
+    // Disabled: the rule's runParsed iterates this.conf.pragmas
+    // unconditionally and crashes when only `pseudo` is set. For a
+    // demo repo we don't have strong opinions about which pseudo-
+    // comments to forbid anyway.
+    "forbidden_pseudo_and_pragma": false,
     "form_parameters_obsolete": true,
     "functional_writing": false,
     "if_in_if": true,
