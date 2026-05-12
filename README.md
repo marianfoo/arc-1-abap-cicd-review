@@ -244,6 +244,36 @@ Reviewer instructions for Claude live in
 [`.github/CLAUDE.md`](.github/CLAUDE.md) — same review criteria as
 Copilot, different invocation surface.
 
+## Autonomous: scheduled SAP dump triage
+
+Same ARC-1 MCP backend, but **scheduled instead of event-triggered**.
+[`sap-dump-triage.yml`](.github/workflows/sap-dump-triage.yml) runs
+every 6 hours (and on manual dispatch). Claude lists ST22 short
+dumps via `SAPDiagnose(action="dumps")`, dedupes against existing
+issues labelled `sap:dump` (HTML-comment marker `<!-- dump-id: ... -->`
+in each issue body), reads the focused chapter sections for any new
+dumps, and opens one GitHub issue per dump with:
+
+- error class + program in the title (`[ST22] OBJECTS_OBJREF_NOT_ASSIGNED in CL_ART_QUICKFIX_PROVIDER`)
+- the dump-id marker for future dedup
+- a 2–4 sentence Claude triage (likely cause, transient vs systemic,
+  one suggested next step)
+- labels `sap:dump`, `needs-triage`
+
+Caps: max 5 new dumps per run, max 30 agent turns. Cost is bounded to
+~$0.30 / run worst case.
+
+Prompt lives in [`.github/sap-dump-triage-prompt.md`](.github/sap-dump-triage-prompt.md).
+Fire manually from the Actions tab → "SAP dump triage" → "Run workflow".
+
+This is the **third axis** of the showcase:
+
+- reactive on push      → `pr.yml` (abaplint via reviewdog)
+- reactive on label     → `copilot-review-trigger.yml` / `claude-review-trigger.yml`
+- proactive on schedule → `sap-dump-triage.yml`
+
+Same MCP server underneath all three.
+
 ## After abapGit push: adding the test class
 
 The `seed/zcl_arc1_task_service.clas.testclasses.abap` file in this

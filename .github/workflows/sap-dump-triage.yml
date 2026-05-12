@@ -1,0 +1,74 @@
+name: SAP dump triage
+
+# Autonomous Claude agent: every 6h, list ST22 short dumps via ARC-1,
+# open ONE GitHub issue per new dump (deduplicated by dump ID),
+# include a short Claude triage hypothesis in the body.
+#
+# Pattern: same MCP backend as the PR-review workflows, but scheduled
+# instead of event-triggered. Demonstrates the third axis of the
+# showcase — reactive (PR review) vs proactive (cron triage).
+
+on:
+  schedule:
+    # 00:00, 06:00, 12:00, 18:00 UTC. Adjust to your business hours if
+    # you want denser coverage during EU working hours, e.g. */2 8-18.
+    - cron: '0 */6 * * *'
+  workflow_dispatch: {}   # manual fire from the Actions tab
+
+# concurrency: don't pile up runs if one drags out.
+concurrency:
+  group: sap-dump-triage
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Write MCP config
+        env:
+          ARC1_URL: ${{ vars.ARC1_URL }}
+          ARC1_API_KEY: ${{ secrets.ARC1_API_KEY }}
+        run: |
+          cat > /tmp/mcp.json <<JSON
+          {
+            "mcpServers": {
+              "arc-1": {
+                "type": "http",
+                "url": "$ARC1_URL/mcp",
+                "headers": {
+                  "Authorization": "Bearer $ARC1_API_KEY"
+                }
+              }
+            }
+          }
+          JSON
+
+      - name: Load prompt
+        id: prompt
+        run: |
+          {
+            echo 'value<<__END_OF_PROMPT__'
+            cat .github/sap-dump-triage-prompt.md
+            echo '__END_OF_PROMPT__'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: anthropics/claude-code-action@v1
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.prompt.outputs.value }}
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 30
+            --mcp-config /tmp/mcp.json
+            --allowedTools mcp__arc-1__SAPDiagnose,mcp__arc-1__SAPRead,Bash(gh issue list:*),Bash(gh issue create:*),Bash(jq:*),Bash(cat:*),Bash(echo:*),Bash(grep:*)
