@@ -46,17 +46,18 @@ jobs:
           echo "── plain-text findings (for log scrollers) ──"
           npx abaplint || true
 
-      - name: Post findings via reviewdog
+      - name: Post findings via reviewdog (Check Run annotations)
+        id: reviewdog
+        continue-on-error: true
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # -reporter=github-pr-check creates a Check Run with annotations.
         # Visible in: (a) the PR's Checks tab → "abaplint" check (always),
         # (b) inline on Files Changed for findings on changed lines.
-        # We previously used -reporter=github-pr-review, which silently
-        # dropped findings on unchanged files (e.g. clas.abap when only
-        # prog.abap is in the diff) — the Check Run reporter doesn't.
         # -filter-mode=nofilter keeps all findings, not just diff-touching ones.
-        # -fail-level=error gates the PR on any error-severity finding.
+        # -fail-level=error makes reviewdog exit non-zero on findings — we
+        # capture that in continue-on-error and gate the job at the end,
+        # so the summary-comment step still runs.
         run: |
           cat abaplint.checkstyle.xml | reviewdog \
             -f=checkstyle \
@@ -64,3 +65,56 @@ jobs:
             -reporter=github-pr-check \
             -filter-mode=nofilter \
             -fail-level=error
+
+      - name: Build summary
+        id: summary
+        if: always() && hashFiles('abaplint.checkstyle.xml') != ''
+        run: |
+          python3 <<'PY' > /tmp/summary.md
+          import xml.etree.ElementTree as ET
+          import os
+
+          tree = ET.parse('abaplint.checkstyle.xml')
+          workspace = os.environ.get('GITHUB_WORKSPACE', '') + '/'
+          findings = []
+          for f in tree.findall('file'):
+              path = (f.get('name') or '').removeprefix(workspace)
+              for e in f.findall('error'):
+                  findings.append((
+                      e.get('severity', '?'),
+                      path,
+                      e.get('line', '?'),
+                      (e.get('source') or '').split('.')[-1] or '?',
+                      (e.get('message') or '').replace('|', '\\|'),
+                  ))
+
+          if not findings:
+              print('## abaplint static-lint report\n\n_No findings._')
+          else:
+              print(f'## abaplint static-lint report')
+              print()
+              print(f'**{len(findings)} issue(s)** — full annotations on the '
+                    f'[Checks tab](../checks). Inline review on files in this '
+                    f'PR\'s diff is not possible for findings on **unchanged** '
+                    f'files (GitHub API limitation).')
+              print()
+              print('| Severity | File | Line | Rule | Message |')
+              print('|---|---|---|---|---|')
+              for sev, path, line, rule, msg in findings:
+                  print(f'| {sev} | `{path}` | {line} | `{rule}` | {msg} |')
+          PY
+          echo '── summary preview ──'
+          cat /tmp/summary.md
+
+      - name: Post / update sticky PR comment
+        if: always() && github.event.pull_request.number != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: abaplint-summary
+          path: /tmp/summary.md
+
+      - name: Gate the job on findings
+        if: steps.reviewdog.outcome == 'failure'
+        run: |
+          echo '::error::abaplint reported issues — see the sticky PR comment or Checks tab.'
+          exit 1
