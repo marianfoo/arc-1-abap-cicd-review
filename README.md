@@ -17,9 +17,10 @@ the diff text.
 - **[Issues labelled `sap:dump`](https://github.com/marianfoo/arc-1-abap-cicd-review/issues?q=is%3Aissue+label%3Asap%3Adump)** —
   autonomous Claude agent triages ST22 short dumps, opens one issue
   per new dump with a hypothesis and an urgency label.
-- **Four workflows** in [`.github/workflows/`](.github/workflows/),
+- **Five workflows** in [`.github/workflows/`](.github/workflows/),
   all sharing the same ARC-1 MCP backend:
   - `pr.yml` — abaplint via reviewdog
+  - `sap-tests.yml` — ABAP Unit tests + ATC on every PR (deterministic, no AI)
   - `copilot-review-trigger.yml` — label-triggered Copilot review
   - `claude-review-trigger.yml` — label-triggered Claude review
   - `sap-dump-triage.yml` — scheduled / manual dump triage (shallow)
@@ -154,7 +155,27 @@ as:
   (Conversation tab),
 - a Check Run with annotations (Checks tab).
 
-The job fails on any abaplint error so the PR is gated.
+The job fails on any abaplint error **introduced by the PR diff** —
+pre-existing tech debt stays visible in the sticky comment but does
+not gate new PRs.
+
+### SAP unit tests + ATC on every PR — automatic, deterministic
+
+[`sap-tests.yml`](.github/workflows/sap-tests.yml) runs on every PR
+touching `src/`. For each changed object:
+
+- **CLAS** → ABAP Unit tests via `SAPDiagnose(action="unittest")`
+- **CLAS / INTF / PROG / FUGR** → ATC via `SAPDiagnose(action="atc")`
+
+Findings post as:
+
+- a sticky summary comment (Conversation tab),
+- inline review comments on the diff for line-specific ATC findings
+  (Files Changed tab).
+
+Gates the merge on **any failing/erroring unit test** OR **any P1/P2
+ATC finding**. No AI cost — pure bash + ARC-1 over MCP. Uses the same
+`viewer-sql` API key as the AI review workflows.
 
 ### AI review on demand — labels
 
