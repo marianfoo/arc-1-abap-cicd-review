@@ -24,6 +24,8 @@ start-of-selection.
 
   go_service = new zcl_arc1_task_service( ).
 
+  break-point.                "#EC NOOP — leftover debug breakpoint
+
   try.
       data(lt_result) = go_service->list_tasks( iv_status = p_status ).
 
