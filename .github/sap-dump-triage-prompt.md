@@ -52,6 +52,8 @@ For each dump in the list whose ID is **not** in the existing set:
    - HTML comment marker: `<!-- dump-id: <full id> -->` (first line,
      so dedup can find it cheaply).
    - Metadata table (timestamp, user, error, program).
+   - **Urgency** line — `**Urgency:** high | medium | low` with a
+     1-sentence justification (see rubric below).
    - **Claude triage** (2–4 sentences):
      - Likely cause based on the error class + program.
      - Whether this looks transient (user-action-triggered) or
@@ -60,13 +62,46 @@ For each dump in the list whose ID is **not** in the existing set:
        method X for null-guard", "verify table T000 has client 100").
    - Link to the SAP `vhcala4hci` system / transaction `ST22` for
      manual investigation.
-3. Create the issue:
+3. Create the issue with the right urgency label:
    ```bash
    gh issue create --repo "$GITHUB_REPOSITORY" \
-     --label 'sap:dump,needs-triage' \
+     --label "sap:dump,needs-triage,urgency:<high|medium|low>" \
      --title "[ST22] <error> in <short-program-name>" \
      --body-file /tmp/issue-body.md
    ```
+
+### Urgency rubric
+
+Pick one of `urgency:high` / `urgency:medium` / `urgency:low` for
+every new issue. Default to **medium** if you're truly unsure — but
+try hard to classify, the whole point is to triage.
+
+- **`urgency:high`** — at least one of:
+  - Runs in **background / cron / scheduled job** (program type "B",
+    or job-related stack frames in the dump).
+  - **Security-related** (auth/role failure, sandbox escape, anything
+    in `SUSR_*`, `SAML*`, `CERT*`, `AUTHORITY-CHECK`).
+  - **Recurrence**: ≥ 3 dumps with the same error+program in the
+    same 6-hour window (visible from the dump list — check before
+    classifying).
+  - **Update terminated** (anything from the V1/V2 update task).
+  - **Production-like path**: customer-facing transaction, OData
+    handler, gateway service.
+
+- **`urgency:medium`** — default. Use when:
+  - User-facing dialog (`type` "A" / online), but transient.
+  - Single user, one record, looks data-specific.
+  - In SAP-standard code (`CL_*`, `/UI2/*`, `/IWFND/*`, etc.) where
+    a SAP note likely exists.
+  - You're not sure but it's not obviously dev noise.
+
+- **`urgency:low`** — when:
+  - The triggering program is a development tool (`SE38`, `SE80`,
+    `SAPMSSY*`, ADT classes `CL_ADT_*` / `CL_ENH_ADT_*`, profiler,
+    debugger).
+  - Single occurrence, user `DEVELOPER` or another dev account,
+    timestamp clusters with manual testing.
+  - The class name has `_TEST` or `_DEMO` in it.
 
 ### Step 4 — print summary
 
