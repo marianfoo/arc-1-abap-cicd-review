@@ -208,15 +208,37 @@ review citing the tool calls.
 
 ## Alternative: Claude instead of Copilot
 
-If you'd rather use Anthropic's Claude:
+Same task, different engine. The repo has a parallel workflow
+[`claude-review-trigger.yml`](.github/workflows/claude-review-trigger.yml)
+using [`anthropics/claude-code-action@v1`](https://github.com/anthropics/claude-code-action).
+**Apply the `claude:review` label** to a PR and the workflow runs Claude
+Code in CI, queries ARC-1 via MCP, and posts a review as `claude[bot]`.
 
-1. Install the [Claude GitHub App](https://github.com/apps/claude)
-   on the repo.
-2. Configure ARC-1 as an MCP server under the Claude app's per-repo
-   settings (same JSON shape as the Copilot config above, but with
-   `Authorization: Bearer ${{ secrets.ARC1_API_KEY }}` directly —
-   no `COPILOT_MCP_` prefix).
-3. Trigger reviews with `@claude review` in PR comments.
+Why Claude is *simpler to wire up* than Copilot here: Claude runs
+INSIDE our workflow, so it posts comments via the default `GITHUB_TOKEN`
+— no PAT trick needed (there's no `@`-mention to chain another bot
+through). The trade-off: needs an Anthropic API key + you pay per token.
+
+**One-time setup for the Claude path:**
+
+1. `ANTHROPIC_API_KEY` (repository secret) — get from
+   [console.anthropic.com](https://console.anthropic.com).
+2. `ARC1_API_KEY` (repository secret) — same `viewer-sql` profile API
+   key as the Copilot setup, just stored under a regular name (the
+   `COPILOT_MCP_` prefix is required for Copilot only).
+3. `ARC1_URL` (repository variable) — same as Copilot, already set.
+
+That's it. No GitHub App install, no PAT, no extra UI config — the MCP
+server is configured inline in the workflow.
+
+**Optional: `@claude` mention via the Claude GitHub App.** If you'd
+also like the conversational `@claude` mention surface (parallel to
+`@copilot`), install the [Claude GitHub App](https://github.com/apps/claude)
+on the repo and configure its MCP servers in the app's settings.
+Trigger reviews with `@claude review …` in PR comments. The mention
+surface is mostly redundant once the label-triggered workflow above
+is wired up — keep this for ad-hoc questions ("@claude, what does the
+caller chain look like for `create_task`?").
 
 Reviewer instructions for Claude live in
 [`.github/CLAUDE.md`](.github/CLAUDE.md) — same review criteria as

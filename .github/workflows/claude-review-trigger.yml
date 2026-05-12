@@ -1,0 +1,78 @@
+name: Trigger Claude review
+
+# Parallel to copilot-review-trigger.yml — same flow, different engine.
+# Apply the `claude:review` label to a PR → this workflow runs Claude
+# Code in CI, talking to ARC-1 via MCP, posts a review as `claude[bot]`.
+#
+# Why this is simpler than the Copilot trigger:
+#   - Claude isn't a GitHub bot; it runs IN our workflow via
+#     anthropics/claude-code-action and posts via GITHUB_TOKEN.
+#   - No "bot can't mention bot" issue, so no PAT needed.
+#   - MCP config goes inline in the workflow (no separate UI config).
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write     # for OIDC (Bedrock/Vertex variants; harmless otherwise)
+  actions: read       # so Claude can read CI run results when reviewing
+
+jobs:
+  claude-review:
+    if: github.event.label.name == 'claude:review'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with: { fetch-depth: 0 }
+
+      - name: Auto-remove the label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api -X DELETE \
+            "repos/${{ github.repository }}/issues/$PR/labels/claude:review" || true
+
+      - name: Load review prompt
+        id: prompt
+        run: |
+          {
+            echo 'value<<__END_OF_PROMPT__'
+            cat .github/claude-review-prompt.md
+            echo '__END_OF_PROMPT__'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.prompt.outputs.value }}
+          # track_progress shows live "Claude is investigating ..." status
+          # comments while the agent works. Set false for quieter PRs.
+          track_progress: 'true'
+          # MCP servers live in Claude Code's settings JSON. Keys mirror
+          # the Copilot Cloud agent setup (Settings → Copilot → MCP)
+          # but reference our regular ARC1_API_KEY secret (no
+          # COPILOT_MCP_ prefix — that's Copilot-specific).
+          settings: |
+            {
+              "mcpServers": {
+                "arc-1": {
+                  "type": "http",
+                  "url": "${{ vars.ARC1_URL }}/mcp",
+                  "headers": {
+                    "Authorization": "Bearer ${{ secrets.ARC1_API_KEY }}"
+                  }
+                }
+              }
+            }
+          # --allowedTools explicit allowlist: read-only ARC-1 surface.
+          # No SAPWrite / SAPActivate / SAPManage / SAPTransport / SAPGit.
+          # --model: Sonnet 4.6 is the default — fast + smart enough for
+          # PR review. Swap to claude-opus-4-7 for higher-stakes reviews.
+          claude_args: |
+            --allowedTools mcp__arc-1__SAPRead,mcp__arc-1__SAPSearch,mcp__arc-1__SAPNavigate,mcp__arc-1__SAPContext,mcp__arc-1__SAPDiagnose,mcp__arc-1__SAPLint,mcp__arc-1__SAPQuery
+            --model claude-sonnet-4-6
