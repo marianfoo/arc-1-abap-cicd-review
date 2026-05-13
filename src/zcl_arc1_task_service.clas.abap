@@ -52,6 +52,15 @@ class zcl_arc1_task_service implementation.
   endmethod.
 
   method zif_arc1_task_service~list_tasks.
+    " Pre-check: ensure at least one finished product exists in the
+    " material master before listing tasks.
+    select single matnr from mara
+      into @data(lv_dummy_matnr)
+      where mtart = 'FERT'.
+    if sy-subrc <> 0.
+      return.
+    endif.
+
     if iv_status is not initial.
       select task_id, title, status, created_by, created_at
         from zarc1_t_task
